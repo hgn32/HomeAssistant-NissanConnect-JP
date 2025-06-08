@@ -142,7 +142,8 @@
     "selector": {
       "region": {
         "options": {
-          "eu": "Europe"
+          "eu": "Europe",
+          "jp": "Japanese"
         }
       }
     }
