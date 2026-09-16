@@ -16,7 +16,7 @@ SETTINGS_MAP = {
             'notifications_base_url': 'https://alliance-platform-notifications-prod.apps.eu2.kamereon.io/notifications/',
             'user_adapter_base_url': 'https://alliance-platform-usersadapter-prod.apps.eu2.kamereon.io/user-adapter/',
             'user_base_url': 'https://nci-bff-web-prod.apps.eu2.kamereon.io/bff-web/'
-        }
+        },
         'JP': {
             'client_id': 'a-ncb-nc-android-prod',
             'client_secret': '6GKIax7fGT5yPHuNmWNVOc4q5POBw1WRSW39ubRA8WPBmQ7MOxhm75EsmKMKENem',
