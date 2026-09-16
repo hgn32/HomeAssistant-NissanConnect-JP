@@ -741,36 +741,6 @@ class Vehicle:
         DeleteSpeedRestrictions
     """
 
-    def lock(self):
-        if Feature.APP_DOOR_LOCKING not in self.features:
-            return
-        resp = self._post(
-            '{}cars/{}/lock'.format(self.session.settings['nissan_remote_base_url'], self.vin),
-            data=json.dumps({
-                'data': {'type': 'Lock'}
-            }),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
-        body = resp.json()
-        if 'errors' in body:
-            raise ValueError(body['errors'])
-        return body
-
-    def unlock(self):
-        if Feature.APP_DOOR_LOCKING not in self.features:
-            return
-        resp = self._post(
-            '{}cars/{}/unlock'.format(self.session.settings['nissan_remote_base_url'], self.vin),
-            data=json.dumps({
-                'data': {'type': 'Unlock'}
-            }),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
-        body = resp.json()
-        if 'errors' in body:
-            raise ValueError(body['errors'])
-        return body
-
     def control_charging(self, action: str, srp: str=None):
         assert action in ('stop', 'start')
         if action == 'start' and Feature.CHARGING_START not in self.features:
@@ -838,53 +808,77 @@ class Vehicle:
             attributes['targetTemperature'] = target_temperature
         if start is not None:
             attributes['startDateTime'] = start.isoformat(timespec='seconds')
-        if srp is not None:
-            attributes['srp'] = srp
 
-        resp = self._post(
-            '{}v1/cars/{}/actions/hvac-start'.format(self.session.settings['car_adapter_base_url'], self.vin),
-            data=json.dumps({
-                'data': {
-                    'type': 'HvacStart',
-                    'attributes': attributes
-                }
-            }),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
+        if self.session.region == 'JP':
+            resp = self._post(
+                '{}nissan/remote-action/v1/cars/{}/hvac-control'.format(self.session.settings['user_base_url'], self.vin),
+                data=json.dumps({
+                    'data': {
+                        'type': 'HvacControl',
+                        'attributes': attributes
+                    }
+                }),
+                headers={'Content-Type': 'application/vnd.api+json', 'X-Vehicle-Gateway': self.vin}
+            )
+        else:
+            if srp is not None:
+                attributes['srp'] = srp
+            resp = self._post(
+                '{}v1/cars/{}/actions/hvac-start'.format(self.session.settings['car_adapter_base_url'], self.vin),
+                data=json.dumps({
+                    'data': {
+                        'type': 'HvacStart',
+                        'attributes': attributes
+                    }
+                }),
+                headers={'Content-Type': 'application/vnd.api+json'}
+            )
         body = resp.json()
         if 'errors' in body:
             raise ValueError(body['errors'])
         return body
 
-    def lock_unlock(self, srp: str, action: str, group: LockableDoorGroup=None):
+    def lock_unlock(self, srp: str=None, action: str='lock', group: LockableDoorGroup=None):
         if Feature.APP_DOOR_LOCKING not in self.features:
             return
         assert action in ('lock', 'unlock')
-        if group is None:
-            group = LockableDoorGroup.DOORS_AND_HATCH
-        resp = self._post(
-            '{}v1/cars/{}/actions/lock-unlock"'.format(self.session.settings['car_adapter_base_url'], self.vin),
-            data=json.dumps({
-                'data': {
-                    'type': 'LockUnlock',
-                    'attributes': {
-                        'lock': action,
-                        'doorType': group.value,
-                        'srp': srp
+        if self.session.region == 'JP':
+            # JP のアプリには遠隔解錠のUI/APIが存在しない (盗難防止のための仕様と見られる)
+            if action == 'unlock':
+                raise NotImplementedError('NissanConnect JP does not expose a remote unlock action')
+            resp = self._post(
+                '{}nissan/remote-action/v2/cars/{}/lock'.format(self.session.settings['user_base_url'], self.vin),
+                data=json.dumps({
+                    'data': {'type': 'ncRemoteLock', 'attributes': {}}
+                }),
+                headers={'Content-Type': 'application/vnd.api+json', 'X-Vehicle-Gateway': self.vin}
+            )
+        else:
+            if group is None:
+                group = LockableDoorGroup.DOORS_AND_HATCH
+            resp = self._post(
+                '{}v1/cars/{}/actions/lock-unlock"'.format(self.session.settings['car_adapter_base_url'], self.vin),
+                data=json.dumps({
+                    'data': {
+                        'type': 'LockUnlock',
+                        'attributes': {
+                            'lock': action,
+                            'doorType': group.value,
+                            'srp': srp
+                        }
                     }
-                }
-            }),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
+                }),
+                headers={'Content-Type': 'application/vnd.api+json'}
+            )
         body = resp.json()
         if 'errors' in body:
             raise ValueError(body['errors'])
         return body
 
-    def lock(self, srp: str, group: LockableDoorGroup=None):
+    def lock(self, srp: str=None, group: LockableDoorGroup=None):
         return self.lock_unlock(srp, 'lock', group)
 
-    def unlock(self, srp: str, group: LockableDoorGroup=None):
+    def unlock(self, srp: str=None, group: LockableDoorGroup=None):
         return self.lock_unlock(srp, 'unlock', group)
 
     def fetch_hvac_status(self):

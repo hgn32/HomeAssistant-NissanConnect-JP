@@ -109,6 +109,9 @@
       },
       "charge_start": {
         "name": "Start Charge"
+      },
+      "door_lock": {
+        "name": "Lock Doors"
       }
     },
     "climate": {
@@ -169,11 +172,6 @@
       },
       "monthly_trips": {
         "name": "Monthly Trips"
-      }
-    },
-    "lock": {
-      "door_lock": {
-        "name": "Door Lock"
       }
     }
   },

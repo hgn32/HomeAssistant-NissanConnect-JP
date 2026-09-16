@@ -109,6 +109,9 @@
       },
       "charge_start": {
         "name": "充電開始"
+      },
+      "door_lock": {
+        "name": "ドア施錠"
       }
     },
     "climate": {
@@ -169,11 +172,6 @@
       },
       "monthly_trips": {
         "name": "今月のトリップ数"
-      }
-    },
-    "lock": {
-      "door_lock": {
-        "name": "ドアロック"
       }
     }
   },

@@ -30,6 +30,9 @@ async def async_setup_entry(hass, config, async_add_entities):
             ]
         if Feature.CHARGING_START in data[vehicle].features:
             entities.append(ChargeControlButtons(coordinator, data[vehicle], "charge_start", "mdi:play", "start"))
+        # JP は遠隔解錠のAPIを持たないため、施錠のみをボタンとして提供する
+        if data[vehicle].session.region == 'JP' and Feature.APP_DOOR_LOCKING in data[vehicle].features:
+            entities.append(DoorLockButton(coordinator, data[vehicle]))
 
     async_add_entities(entities, update_before_add=True)
 
@@ -80,4 +83,17 @@ class ChargeControlButtons(KamereonEntity, ButtonEntity):
 
     def press(self):
         self.vehicle.control_charging(self._action)
+
+class DoorLockButton(KamereonEntity, ButtonEntity):
+    _attr_translation_key = "door_lock"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:lock'
+
+    def press(self):
+        self.vehicle.lock()
 
