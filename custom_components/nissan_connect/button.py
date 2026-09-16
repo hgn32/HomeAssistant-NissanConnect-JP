@@ -5,7 +5,7 @@ import asyncio
 from homeassistant.components.button import ButtonEntity
 
 from .base import KamereonEntity
-from .kamereon import ChargingStatus, PluggedStatus, Feature
+from .kamereon import ChargingStatus, PluggedStatus, Feature, HVACAction
 from .const import DOMAIN, DATA_VEHICLES, DATA_COORDINATOR_POLL, DATA_COORDINATOR_FETCH, DATA_COORDINATOR_STATISTICS
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,6 +30,12 @@ async def async_setup_entry(hass, config, async_add_entities):
             ]
         if Feature.CHARGING_START in data[vehicle].features:
             entities.append(ChargeControlButtons(coordinator, data[vehicle], "charge_start", "mdi:play", "start"))
+        # JP は遠隔解錠のAPIを持たないため、施錠のみをボタンとして提供する
+        if data[vehicle].session.region == 'JP' and Feature.APP_DOOR_LOCKING in data[vehicle].features:
+            entities.append(DoorLockButton(coordinator, data[vehicle]))
+        # JP の ICE 車は温度指定のない単純なリモートエンジンスタートのみ持つ
+        if Feature.REMOTE_ENGINE_START in data[vehicle].features:
+            entities.append(EngineStartButton(coordinator, data[vehicle]))
 
     async_add_entities(entities, update_before_add=True)
 
@@ -80,4 +86,30 @@ class ChargeControlButtons(KamereonEntity, ButtonEntity):
 
     def press(self):
         self.vehicle.control_charging(self._action)
+
+class DoorLockButton(KamereonEntity, ButtonEntity):
+    _attr_translation_key = "door_lock"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:lock'
+
+    def press(self):
+        self.vehicle.lock()
+
+class EngineStartButton(KamereonEntity, ButtonEntity):
+    _attr_translation_key = "engine_start"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:engine-outline'
+
+    def press(self):
+        self.vehicle.set_hvac_status(HVACAction.START)
 

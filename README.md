@@ -103,3 +103,5 @@ This integration exposes the following entities. Please note that entities will 
   - Flash Lights
   - Honk Horn
   - Start Charge
+  - Lock Doors (JP only; the app itself has no remote unlock action)
+  - Start Engine (JP ICE cars with the `REMOTE_ENGINE_START` feature; no temperature setting, just a start trigger like the app's own button)

@@ -1,150 +1,189 @@
 {
-    "title": "NissanConnect",
-    "config": {
-      "step": {
-        "user": {
-          "description": "Configure your NissanConnect account.",
-          "data": {
-            "email": "Email address",
-            "password": "Password",
-            "interval": "Polling interval (minutes)",
-            "interval_charging": "Polling interval while charging (minutes)",
-            "interval_statistics": "Update interval for daily/monthly statistics (minutes)",
-            "interval_fetch": "Update interval (minutes)",
-            "region": "Region",
-            "imperial_distance": "Use imperial distance units (miles)"
-          },
-          "data_description": {
-            "interval_charging": "The car will be woken up and new data requested at every polling interval.",
-            "interval_statistics": "On update intervals, the latest data will be fetched from Nissan but the car will not be woken up."
-          }
-        }
-      },
-      "error": {
-        "auth_error": "Invalid credentials provided.",
-        "region_error": "Invalid region provided. Please provide a valid region."
-      },
-      "abort": {}
-    },
-    "options": {
-      "step": {
-        "init": {
-          "description": "Update your NissanConnect account information.",
-          "data": {
-            "email": "Email address",
-            "password": "Password",
-            "interval": "Polling interval (minutes)",
-            "interval_charging": "Polling interval while charging (minutes)",
-            "interval_statistics": "Update interval for daily/monthly statistics (minutes)",
-            "interval_fetch": "Update interval (minutes)",
-            "imperial_distance": "Use imperial distance units (miles)"
-          },
-          "data_description": {
-            "password": "If you are not changing your credentials, leave the password field empty.",
-            "interval_charging": "The car will be woken up and new data requested at every polling interval.",
-            "interval_statistics": "On update intervals, the latest data will be fetched from Nissan but the car will not be woken up."
-          }
-        }
-      },
-      "error": {
-        "auth_error": "Invalid credentials provided."
-      },
-      "abort": {}
-    },
-    "issues": {},
-    "entity": {
-      "binary_sensor": {
-        "charging": {
-          "name": "Charging"
+  "title": "NissanConnect",
+  "config": {
+    "step": {
+      "user": {
+        "description": "Configure your NissanConnect account.",
+        "data": {
+          "email": "Email address",
+          "password": "Password",
+          "interval": "Polling interval (minutes)",
+          "interval_charging": "Polling interval while charging (minutes)",
+          "interval_statistics": "Update interval for daily/monthly statistics (minutes)",
+          "interval_fetch": "Update interval (minutes)",
+          "region": "Region",
+          "imperial_distance": "Use imperial distance units (miles)"
         },
-        "doors_locked": {
-          "name": "Doors Locked"
-        },
-        "plugged": {
-          "name": "Plugged In"
-        }
-      },
-      "button": {
-        "flash_lights": {
-          "name": "Flash Lights"
-        },
-        "honk_horn": {
-          "name": "Honk Horn"
-        },
-        "update_data": {
-          "name": "Update Data"
-        },
-        "charge_start": {
-          "name": "Start Charge"
-        }
-      },
-      "climate": {
-        "climate": {
-          "name": "Climate"
-        }
-      },
-      "device_tracker": {
-        "location": {
-          "name": "Location"
-        }
-      },
-      "sensor": {
-        "battery_level": {
-          "name": "Battery Level"
-        },
-        "internal_temperature": {
-          "name": "Internal Temperature"
-        },
-        "external_temperature": {
-          "name": "External Temperature"
-        },
-        "range_ac_on": {
-          "name": "Range (AC On)"
-        },
-        "range_ac_off": {
-          "name": "Range (AC Off)"
-        },
-        "odometer": {
-          "name": "Odometer"
-        },
-        "charge_time_3kw": {
-          "name": "Charge Time (3kW)"
-        },
-        "charge_time_6kw": {
-          "name": "Charge Time (6kW)"
-        },
-        "charge_time_adaptive": {
-          "name": "Charge Time (adaptive)"
-        },
-        "last_updated": {
-          "name": "Last Updated"
-        },
-        "daily_distance": {
-          "name": "Daily Distance"
-        },
-        "daily_efficiency": {
-          "name": "Daily Efficiency"
-        },
-        "daily_trips": {
-          "name": "Daily Trips"
-        },
-        "monthly_distance": {
-          "name": "Monthly Distance"
-        },
-        "monthly_efficiency": {
-          "name": "Monthly Efficiency"
-        },
-        "monthly_trips": {
-          "name": "Monthly Trips"
+        "data_description": {
+          "interval_charging": "The car will be woken up and new data requested at every polling interval.",
+          "interval_statistics": "On update intervals, the latest data will be fetched from Nissan but the car will not be woken up."
         }
       }
     },
-    "selector": {
-      "region": {
-        "options": {
-          "eu": "Europe",
-          "jp": "Japanese"
+    "error": {
+      "auth_error": "Invalid credentials provided.",
+      "region_error": "Invalid region provided. Please provide a valid region."
+    },
+    "abort": {}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Update your NissanConnect account information.",
+        "data": {
+          "email": "Email address",
+          "password": "Password",
+          "interval": "Polling interval (minutes)",
+          "interval_charging": "Polling interval while charging (minutes)",
+          "interval_statistics": "Update interval for daily/monthly statistics (minutes)",
+          "interval_fetch": "Update interval (minutes)",
+          "imperial_distance": "Use imperial distance units (miles)"
+        },
+        "data_description": {
+          "password": "If you are not changing your credentials, leave the password field empty.",
+          "interval_charging": "The car will be woken up and new data requested at every polling interval.",
+          "interval_statistics": "On update intervals, the latest data will be fetched from Nissan but the car will not be woken up."
         }
+      }
+    },
+    "error": {
+      "auth_error": "Invalid credentials provided."
+    },
+    "abort": {}
+  },
+  "issues": {},
+  "entity": {
+    "binary_sensor": {
+      "charging": {
+        "name": "Charging"
+      },
+      "doors_locked": {
+        "name": "Doors Locked"
+      },
+      "plugged": {
+        "name": "Plugged In"
+      },
+      "doors_open": {
+        "name": "Doors Open"
+      },
+      "warning_brake": {
+        "name": "Brake Warning"
+      },
+      "warning_abs": {
+        "name": "ABS Warning"
+      },
+      "warning_airbag": {
+        "name": "Airbag Warning"
+      },
+      "warning_mil": {
+        "name": "Malfunction Indicator Lamp"
+      },
+      "warning_oil_pressure": {
+        "name": "Oil Pressure Warning"
+      },
+      "warning_tyre_pressure": {
+        "name": "Tyre Pressure Warning"
+      },
+      "warning_parking_light": {
+        "name": "Parking Light Warning"
+      },
+      "warning_power_steering": {
+        "name": "Power Steering Warning"
+      },
+      "warning_battery": {
+        "name": "Battery Warning"
+      },
+      "warning_power_limitation": {
+        "name": "Power Limitation Alert"
+      }
+    },
+    "button": {
+      "flash_lights": {
+        "name": "Flash Lights"
+      },
+      "honk_horn": {
+        "name": "Honk Horn"
+      },
+      "update_data": {
+        "name": "Update Data"
+      },
+      "charge_start": {
+        "name": "Start Charge"
+      },
+      "door_lock": {
+        "name": "Lock Doors"
+      },
+      "engine_start": {
+        "name": "Start Engine"
+      }
+    },
+    "climate": {
+      "climate": {
+        "name": "Climate"
+      }
+    },
+    "device_tracker": {
+      "location": {
+        "name": "Location"
+      }
+    },
+    "sensor": {
+      "battery_level": {
+        "name": "Battery Level"
+      },
+      "internal_temperature": {
+        "name": "Internal Temperature"
+      },
+      "external_temperature": {
+        "name": "External Temperature"
+      },
+      "range_ac_on": {
+        "name": "Range (AC On)"
+      },
+      "range_ac_off": {
+        "name": "Range (AC Off)"
+      },
+      "odometer": {
+        "name": "Odometer"
+      },
+      "charge_time_3kw": {
+        "name": "Charge Time (3kW)"
+      },
+      "charge_time_6kw": {
+        "name": "Charge Time (6kW)"
+      },
+      "charge_time_adaptive": {
+        "name": "Charge Time (adaptive)"
+      },
+      "last_updated": {
+        "name": "Last Updated"
+      },
+      "daily_distance": {
+        "name": "Daily Distance"
+      },
+      "daily_efficiency": {
+        "name": "Daily Efficiency"
+      },
+      "daily_trips": {
+        "name": "Daily Trips"
+      },
+      "monthly_distance": {
+        "name": "Monthly Distance"
+      },
+      "monthly_efficiency": {
+        "name": "Monthly Efficiency"
+      },
+      "monthly_trips": {
+        "name": "Monthly Trips"
       }
     }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "eu": "Europe",
+        "jp": "Japanese"
+      }
+    }
+  }
 }

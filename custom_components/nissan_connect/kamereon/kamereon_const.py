@@ -16,24 +16,39 @@ SETTINGS_MAP = {
             'notifications_base_url': 'https://alliance-platform-notifications-prod.apps.eu2.kamereon.io/notifications/',
             'user_adapter_base_url': 'https://alliance-platform-usersadapter-prod.apps.eu2.kamereon.io/user-adapter/',
             'user_base_url': 'https://nci-bff-web-prod.apps.eu2.kamereon.io/bff-web/'
-        }
+        },
         'JP': {
             'client_id': 'a-ncb-nc-android-prod',
             'client_secret': '6GKIax7fGT5yPHuNmWNVOc4q5POBw1WRSW39ubRA8WPBmQ7MOxhm75EsmKMKENem',
             'scope': 'openid profile vehicles',
-            'auth_base_url': 'https://prod.eu2.auth.kamereon.org/kauth/',
+            # JP は EU とは別の KAuth ホストを使う
+            'auth_base_url': 'https://prod.jp.auth.kamereon.org/kauth/',
             'realm': 'a-ncb-prod',
             'redirect_uri': 'org.kamereon.service.nci:/oauth2redirect',
-            # 'car_adapter_base_url': 'https://alliance-platform-caradapter-prod.apps.eu2.kamereon.io/car-adapter/',
-            # 'notifications_base_url': 'https://alliance-platform-notifications-prod.apps.eu2.kamereon.io/notifications/',
-            # 'user_adapter_base_url': 'https://alliance-platform-usersadapter-prod.apps.eu2.kamereon.io/user-adapter/',
-            # 'user_base_url': 'https://nci-bff-web-prod.apps.eu2.kamereon.io/bff-web/'
+            # NissanConnect (NCX) アプリの BFF ログイン用
+            'app_id': 'jp.co.nissan.nissanconnect.ncx',
             'car_adapter_base_url': 'https://nc-app-bff-prod.apps.jp.kamereon.io/nc-app-bff/alliance/car-adapter/',
             'notifications_base_url': 'https://nc-app-bff-prod.apps.jp.kamereon.io/nc-app-bff/alliance/notifications/',
             'user_adapter_base_url': 'https://nc-app-bff-prod.apps.jp.kamereon.io/nc-app-bff/alliance/user-adapter/',
             'user_base_url': 'https://nc-app-bff-prod.apps.jp.kamereon.io/nc-app-bff/'
         }
     }
+}
+
+
+# アプリの機能可用性マップ (nissan/config/v1/cars/{vin}/features) のキー
+# -> health-status が返す malfunctionIndicatorLamps のキー
+HEALTH_LAMPS = {
+    'brakeWarning': 'brakeFluidWarning',
+    'absWarning': 'absWarning',
+    'airbagWarning': 'airbagWarning',
+    'lampRequest': 'lampRequest',
+    'oilPressureWarning': 'oilPressureWarning',
+    'tyrePressureWarning': 'tyrePressureWarning',
+    'parkingLightWarning': 'parkingLightWarning',
+    'powerSteeringWarning': 'powerSteeringWarning',
+    'batteryWarning': 'batteryWarning',
+    'powerLimitationAlert': 'powerLimitationAlert',
 }
 
 
@@ -62,6 +77,7 @@ class LockStatus(enum.Enum):
 
 class Door(enum.Enum):
     HATCH = 'hatch'
+    HOOD = 'hood'
     FRONT_LEFT = 'front_left'
     FRONT_RIGHT = 'front_right'
     REAR_LEFT = 'rear_left'

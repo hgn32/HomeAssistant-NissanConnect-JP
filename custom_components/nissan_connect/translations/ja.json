@@ -1,0 +1,189 @@
+{
+  "title": "NissanConnect",
+  "config": {
+    "step": {
+      "user": {
+        "description": "NissanConnect アカウントを設定します。",
+        "data": {
+          "email": "ユーザーID",
+          "password": "パスワード",
+          "interval": "ポーリング間隔（分）",
+          "interval_charging": "充電中のポーリング間隔（分）",
+          "interval_statistics": "日次・月次統計の更新間隔（分）",
+          "interval_fetch": "更新間隔（分）",
+          "region": "地域",
+          "imperial_distance": "距離をマイルで表示する"
+        },
+        "data_description": {
+          "interval_charging": "ポーリングのたびに車両を起こしてデータを取得します。",
+          "interval_statistics": "更新間隔では日産から最新データを取得しますが、車両は起こしません。"
+        }
+      }
+    },
+    "error": {
+      "auth_error": "ユーザーIDまたはパスワードが正しくありません。",
+      "region_error": "地域の指定が正しくありません。有効な地域を指定してください。"
+    },
+    "abort": {}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "NissanConnect アカウントの情報を更新します。",
+        "data": {
+          "email": "ユーザーID",
+          "password": "パスワード",
+          "interval": "ポーリング間隔（分）",
+          "interval_charging": "充電中のポーリング間隔（分）",
+          "interval_statistics": "日次・月次統計の更新間隔（分）",
+          "interval_fetch": "更新間隔（分）",
+          "imperial_distance": "距離をマイルで表示する"
+        },
+        "data_description": {
+          "password": "資格情報を変更しない場合は、パスワード欄を空のままにしてください。",
+          "interval_charging": "ポーリングのたびに車両を起こしてデータを取得します。",
+          "interval_statistics": "更新間隔では日産から最新データを取得しますが、車両は起こしません。"
+        }
+      }
+    },
+    "error": {
+      "auth_error": "ユーザーIDまたはパスワードが正しくありません。"
+    },
+    "abort": {}
+  },
+  "issues": {},
+  "entity": {
+    "binary_sensor": {
+      "charging": {
+        "name": "充電中"
+      },
+      "doors_locked": {
+        "name": "ドアロック"
+      },
+      "plugged": {
+        "name": "充電ケーブル接続"
+      },
+      "doors_open": {
+        "name": "ドア開放"
+      },
+      "warning_brake": {
+        "name": "ブレーキ警告灯"
+      },
+      "warning_abs": {
+        "name": "ABS警告灯"
+      },
+      "warning_airbag": {
+        "name": "エアバッグ警告灯"
+      },
+      "warning_mil": {
+        "name": "エンジン警告灯"
+      },
+      "warning_oil_pressure": {
+        "name": "油圧警告灯"
+      },
+      "warning_tyre_pressure": {
+        "name": "空気圧警告灯"
+      },
+      "warning_parking_light": {
+        "name": "駐車灯警告灯"
+      },
+      "warning_power_steering": {
+        "name": "パワーステアリング警告灯"
+      },
+      "warning_battery": {
+        "name": "バッテリー警告灯"
+      },
+      "warning_power_limitation": {
+        "name": "出力制限警告"
+      }
+    },
+    "button": {
+      "flash_lights": {
+        "name": "ライト点滅"
+      },
+      "honk_horn": {
+        "name": "ホーン"
+      },
+      "update_data": {
+        "name": "データ更新"
+      },
+      "charge_start": {
+        "name": "充電開始"
+      },
+      "door_lock": {
+        "name": "ドア施錠"
+      },
+      "engine_start": {
+        "name": "エンジン始動"
+      }
+    },
+    "climate": {
+      "climate": {
+        "name": "エアコン"
+      }
+    },
+    "device_tracker": {
+      "location": {
+        "name": "位置"
+      }
+    },
+    "sensor": {
+      "battery_level": {
+        "name": "バッテリー残量"
+      },
+      "internal_temperature": {
+        "name": "車内温度"
+      },
+      "external_temperature": {
+        "name": "外気温"
+      },
+      "range_ac_on": {
+        "name": "航続可能距離（エアコンON）"
+      },
+      "range_ac_off": {
+        "name": "航続可能距離（エアコンOFF）"
+      },
+      "odometer": {
+        "name": "総走行距離"
+      },
+      "charge_time_3kw": {
+        "name": "充電時間（3kW）"
+      },
+      "charge_time_6kw": {
+        "name": "充電時間（6kW）"
+      },
+      "charge_time_adaptive": {
+        "name": "充電時間（自動）"
+      },
+      "last_updated": {
+        "name": "最終更新"
+      },
+      "daily_distance": {
+        "name": "本日の走行距離"
+      },
+      "daily_efficiency": {
+        "name": "本日の電費"
+      },
+      "daily_trips": {
+        "name": "本日のトリップ数"
+      },
+      "monthly_distance": {
+        "name": "今月の走行距離"
+      },
+      "monthly_efficiency": {
+        "name": "今月の電費"
+      },
+      "monthly_trips": {
+        "name": "今月のトリップ数"
+      }
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "eu": "ヨーロッパ",
+        "jp": "日本"
+      }
+    }
+  }
+}

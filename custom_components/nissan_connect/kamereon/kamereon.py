@@ -12,6 +12,7 @@ import time
 from oauthlib.common import generate_nonce
 from oauthlib.oauth2 import TokenExpiredError
 from requests_oauthlib import OAuth2Session
+from urllib.parse import urlparse, parse_qs
 from .kamereon_const import *
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ class KamereonSession:
     unique_id = None
 
     def __init__(self, region, unique_id=None):
+        self.region = region
         self.settings = SETTINGS_MAP[self.tenant][region]
         session = requests.session()
         self.session = session
@@ -98,6 +100,164 @@ class KamereonSession:
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
     def login(self, username=None, password=None):
+        if self.region == 'JP':
+            return self._login_jp(username, password)
+        return self._login_oauth(username, password)
+
+    def _login_jp(self, username=None, password=None):
+        """JP: BFF のログインAPIを試し、駄目なら KAuth に直接ログインする。"""
+        if username is not None and password is not None:
+            self._username = username
+            self._password = password
+        else:
+            username = self._username
+            password = self._password
+
+        self.session = requests.session()
+
+        problems = []
+        try:
+            token = self._login_jp_bff(username, password)
+            _LOGGER.debug("Logged in via BFF login endpoint")
+        except Exception as bff_error:  # noqa: BLE001
+            problems.append('BFF: {}'.format(bff_error))
+            _LOGGER.warning(
+                "BFF login failed (%s) - falling back to direct KAuth login", bff_error)
+            try:
+                token = self._login_jp_kauth(username, password)
+                _LOGGER.info("Logged in via direct KAuth login")
+            except Exception as kauth_error:  # noqa: BLE001
+                problems.append('KAuth: {}'.format(kauth_error))
+                raise RuntimeError(' | '.join(problems)) from kauth_error
+
+        self._oauth = requests.session()
+        self._oauth.headers.update({'Authorization': 'Bearer ' + token})
+
+    def _login_jp_bff(self, username, password):
+        """NissanConnect (NCX) アプリと同じ、BFF 経由のログイン。"""
+        auth_url = '{}nissan/account/v1/login'.format(
+            self.settings['user_base_url'])
+        response = self.session.post(
+            auth_url,
+            json={
+                'data': {
+                    'type': 'token',
+                    'attributes': {
+                        'username': username,
+                        'password': password,
+                    }
+                }
+            },
+            headers={'x-app-id': self.settings.get(
+                'app_id', 'jp.co.nissan.nissanconnect.ncx')},
+            timeout=45,
+        )
+        body = response.json()
+        if 'errors' in body:
+            error = body['errors'][0]
+            raise RuntimeError(error.get('detail', str(error)))
+        return body['data']['attributes']['access_token']
+
+    def _login_jp_kauth(self, username, password):
+        """KAuth (ForgeRock) に直接ログインしてアクセストークンを得る。"""
+        base_url = self.settings['auth_base_url']
+        realm = self.settings['realm']
+        session = requests.session()
+
+        auth_url = '{}json/realms/root/realms/{}/authenticate'.format(
+            base_url, realm)
+        headers = {
+            'Accept-Api-Version': API_VERSION,
+            'X-Username': 'anonymous',
+            'X-Password': 'anonymous',
+            'Accept': 'application/json',
+        }
+        response = session.post(auth_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        challenge = response.json()
+
+        for callback in challenge.get('callbacks', []):
+            if callback['type'] == 'NameCallback':
+                callback['input'][0]['value'] = username
+            elif callback['type'] == 'PasswordCallback':
+                callback['input'][0]['value'] = password
+
+        post_headers = dict(headers)
+        post_headers['Content-Type'] = 'application/json'
+        response = session.post(
+            auth_url, headers=post_headers, data=json.dumps(challenge), timeout=30)
+        if response.status_code == 401:
+            raise RuntimeError('Invalid credentials')
+        response.raise_for_status()
+        auth_data = response.json()
+        if 'tokenId' not in auth_data:
+            raise RuntimeError(
+                'Unexpected KAuth response: {}'.format(response.text[:200]))
+
+        oauth_realm = auth_data.get('realm') or '/{}'.format(realm)
+
+        response = session.get(
+            '{}oauth2{}/authorize'.format(base_url, oauth_realm),
+            params={
+                'client_id': self.settings['client_id'],
+                'redirect_uri': self.settings['redirect_uri'],
+                'response_type': 'code',
+                'scope': self.settings['scope'],
+                'nonce': generate_nonce(),
+            },
+            allow_redirects=False,
+            timeout=30,
+        )
+        location = response.headers.get('location', '')
+        code = self._extract_auth_code(location)
+        if not code:
+            raise RuntimeError('No authorization code returned (http {}, location {})'.format(
+                response.status_code, location[:200]))
+
+        payload = {
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': self.settings['redirect_uri'],
+            'client_id': self.settings['client_id'],
+        }
+        client_secret = self.settings.get('client_secret')
+        # クライアント認証方式が不明なため post -> basic -> なし の順に試す
+        attempts = []
+        if client_secret:
+            attempts.append(('client_secret_post', dict(
+                payload, client_secret=client_secret), None))
+            attempts.append(('client_secret_basic', payload,
+                             (self.settings['client_id'], client_secret)))
+        attempts.append(('none', payload, None))
+
+        token_url = '{}oauth2{}/access_token'.format(base_url, oauth_realm)
+        last_error = None
+        for method, data, auth in attempts:
+            response = session.post(token_url, data=data, auth=auth, timeout=30)
+            if response.status_code == 200:
+                token = response.json().get('access_token')
+                if token:
+                    _LOGGER.debug(
+                        "KAuth token obtained (client auth: %s)", method)
+                    return token
+            last_error = '{} -> {} {}'.format(
+                method, response.status_code, response.text[:200])
+            _LOGGER.debug("KAuth token request failed: %s", last_error)
+
+        raise RuntimeError('Token request failed ({})'.format(last_error))
+
+    @staticmethod
+    def _extract_auth_code(location):
+        if not location:
+            return None
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+        if not params.get('code'):
+            params = parse_qs(parsed.fragment)
+        codes = params.get('code')
+        return codes[0] if codes else None
+
+    def _login_oauth(self, username=None, password=None):
         if username is not None and password is not None:
             # Cache credentials
             self._username = username
@@ -200,6 +360,8 @@ class KamereonSession:
         return self._user_id
 
     def fetch_vehicles(self):
+        if self.region == 'JP':
+            return self._fetch_vehicles_jp()
         resp = self.oauth.get(
             '{}v5/users/{}/cars'.format(self.settings['user_base_url'], self.user_id)
         )
@@ -209,6 +371,40 @@ class KamereonSession:
             vehicles.append(vehicle)
             _registry[VEHICLES][vehicle.vin] = vehicle
         return vehicles
+
+
+    def _fetch_vehicles_jp(self):
+        """JP の BFF は EU と別系統 (token-info + car details) を使う。"""
+        resp = self.oauth.get(
+            '{}nissan/account/v1/token-info'.format(self.settings['user_base_url'])
+        )
+        vehicles = []
+        for vehicle_baseinfo in resp.json()['data']['attributes']['vehicles']:
+            vehicle_data = self.oauth.get(
+                '{}nissan/config/v1/cars/{}/details'.format(
+                    self.settings['user_base_url'], vehicle_baseinfo['vin'])
+            ).json()
+            vehicle_data['services'] = vehicle_baseinfo.get('services', [])
+            vehicle_data['appConfig'] = self._fetch_app_config(vehicle_baseinfo['vin'])
+            vehicle = Vehicle(vehicle_data, self.user_id)
+            vehicles.append(vehicle)
+            _registry[VEHICLES][vehicle.vin] = vehicle
+        return vehicles
+
+    def _fetch_app_config(self, vin):
+        """アプリ自身の機能可用性マップ。取れなければ空を返す。"""
+        try:
+            body = self.oauth.get(
+                '{}nissan/config/v1/cars/{}/features'.format(
+                    self.settings['user_base_url'], vin)
+            ).json()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not fetch the app feature map: %s", err)
+            return {}
+        if 'errors' in body:
+            _LOGGER.warning("Could not fetch the app feature map: %s", body['errors'])
+            return {}
+        return body.get('data', {}).get('attributes', {}) or {}
 
 
 class NCISession(KamereonSession):
@@ -232,34 +428,59 @@ class Vehicle:
     def __init__(self, data, user_id):
         self.user_id = user_id
         self.vin = data['vin'].upper()
+        # JP (nissan/config/v1/cars/{vin}/details) は model が dict で返る。
+        # EU (v5/users/{id}/cars) は modelName などがトップレベルにある。
+        model = data.get('model')
+        jp_payload = isinstance(model, dict)
+        # アプリの機能可用性マップ (JP のみ)。これがあるなら
+        # services の推定よりこちらを優先する。
+        self.app_config = data.get('appConfig') or {}
         self.features = []
 
         # Try to parse every feature, but dont fail if we dont recognise one
         for u in data.get('services', []):
-            if u['activationState'] == "ACTIVATED":
-                try:
-                    self.features.append(Feature(str(u['id'])))
-                except ValueError:
-                    _LOGGER.debug(f"Unknown feature {str(u['id'])}")
-                    pass
-        
+            if isinstance(u, dict):
+                if u.get('activationState') != "ACTIVATED":
+                    continue
+                feature_id = str(u['id'])
+            else:
+                # JP の token-info は id の配列で返る
+                feature_id = str(u)
+            try:
+                feature = Feature(feature_id)
+                if feature not in self.features:
+                    self.features.append(feature)
+            except ValueError:
+                _LOGGER.debug(f"Unknown feature {feature_id}")
+                pass
+
         _LOGGER.debug("Active features: %s", self.features)
 
+        color = data.get('color')
         self.can_generation = data.get('canGeneration')
-        self.color = data.get('color')
+        self.color = color.get('nameG2B') if isinstance(color, dict) else color
         self.energy = data.get('energy')
         self.vehicle_gateway = data.get('carGateway')
         self.battery_code = data.get('batteryCode')
         self.engine_type = data.get('engineType')
         self.first_registration_date = data.get('firstRegistrationDate')
         self.ice_or_ev = data.get('iceEvFlag')
-        self.model_name = data.get('modelName')
-        self.model_code = data.get('modelCode')
-        self.model_year = data.get('modelYear')
-        self.nickname = data.get('nickname')
-        self.phase = data.get('phase')
-        self.picture_url = data.get('pictureURL')
-        self.privacy_mode = data.get('privacyMode')
+        if jp_payload:
+            self.model_name = model.get('displayName')
+            self.model_code = model.get('code')
+            self.model_year = model.get('year')
+            self.nickname = model.get('name')
+            self.phase = None
+            self.picture_url = data.get('bfpImageUrl')
+            self.privacy_mode = None
+        else:
+            self.model_name = data.get('modelName')
+            self.model_code = data.get('modelCode')
+            self.model_year = data.get('modelYear')
+            self.nickname = data.get('nickname')
+            self.phase = data.get('phase')
+            self.picture_url = data.get('pictureURL')
+            self.privacy_mode = data.get('privacyMode')
         self.registration_number = data.get('registrationNumber')
         self.battery_supported = True
         self.battery_capacity = None
@@ -288,6 +509,8 @@ class Vehicle:
         self.external_temperature = None
         self.internal_temperature = None
         self.hvac_status = None
+        # JP: hvac-status が返す遠隔エンジン始動の状態 (意味は未解明)
+        self.remote_engine_status = None
         self.next_hvac_start_date = None
         self.next_target_temperature = None
         self.hvac_status_last_updated = None
@@ -296,10 +519,14 @@ class Vehicle:
             Door.FRONT_RIGHT: None,
             Door.REAR_LEFT: None,
             Door.REAR_RIGHT: None,
-            Door.HATCH: None
+            Door.HATCH: None,
+            Door.HOOD: None
         }
         self.lock_status = None
         self.lock_status_last_updated = None
+        self.malfunction_lamps = {}
+        self.maintenance = {}
+        self.health_status_last_updated = None
         self.eco_score = None
         self.fuel_autonomy = None
         self.fuel_consumption = None
@@ -309,6 +536,28 @@ class Vehicle:
         self.fuel_quantity = None
         self.mileage = None
         self.total_mileage = None
+
+    def app_available(self, *path):
+        """機能可用性マップの available を返す。マップが無ければ None。"""
+        if not self.app_config:
+            return None
+        node = self.app_config
+        for key in path:
+            if not isinstance(node, dict) or key not in node:
+                return None
+            node = node[key]
+        if isinstance(node, dict):
+            return node.get('available')
+        return None
+
+    def available_health_lamps(self):
+        """この車で対応している警告灯のキーを返す。"""
+        if self.app_config:
+            return [key for key in HEALTH_LAMPS
+                    if self.app_available('healthStatus', key)]
+        # マップが無い場合は実際に返ってきたものを使う
+        return [key for key, payload_key in HEALTH_LAMPS.items()
+                if payload_key in self.malfunction_lamps]
 
     def _request(self, method, url, headers=None, params=None, data=None, max_retries=3):
         for attempt in range(max_retries):
@@ -354,6 +603,7 @@ class Vehicle:
         self.fetch_battery_status()
         self.fetch_hvac_status()
         self.fetch_lock_status()
+        self.fetch_health_status()
 
     def refresh_location(self):
         if Feature.MY_CAR_FINDER not in self.features:
@@ -415,6 +665,8 @@ class Vehicle:
         self.door_status[Door.REAR_LEFT] = LockStatus(lock_data.get('doorStatusRearLeft', LockStatus.CLOSED))
         self.door_status[Door.REAR_RIGHT] = LockStatus(lock_data.get('doorStatusRearRight', LockStatus.CLOSED))
         self.door_status[Door.HATCH] = LockStatus(lock_data.get('hatchStatus', LockStatus.CLOSED))
+        if 'engineHoodStatus' in lock_data:
+            self.door_status[Door.HOOD] = LockStatus(lock_data['engineHoodStatus'])
         self.lock_status = LockStatus(lock_data.get('lockStatus', LockStatus.LOCKED))
         self.lock_status_last_updated = datetime.datetime.fromisoformat(lock_data['lastUpdateTime'].replace('Z','+00:00'))
 
@@ -543,7 +795,9 @@ class Vehicle:
         return body
 
     def set_hvac_status(self, action: HVACAction, target_temperature: int=21, start: datetime.datetime=None, srp: str=None):
-        if Feature.CLIMATE_ON_OFF not in self.features:
+        # JP の ICE 車は CLIMATE_ON_OFF ではなく REMOTE_ENGINE_START を持つ
+        if (Feature.CLIMATE_ON_OFF not in self.features
+                and Feature.REMOTE_ENGINE_START not in self.features):
             return
 
         if target_temperature < 16 or target_temperature > 26:
@@ -556,57 +810,85 @@ class Vehicle:
             attributes['targetTemperature'] = target_temperature
         if start is not None:
             attributes['startDateTime'] = start.isoformat(timespec='seconds')
-        if srp is not None:
-            attributes['srp'] = srp
 
-        resp = self._post(
-            '{}v1/cars/{}/actions/hvac-start'.format(self.session.settings['car_adapter_base_url'], self.vin),
-            data=json.dumps({
-                'data': {
-                    'type': 'HvacStart',
-                    'attributes': attributes
-                }
-            }),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
+        if self.session.region == 'JP':
+            resp = self._post(
+                '{}nissan/remote-action/v1/cars/{}/hvac-control'.format(self.session.settings['user_base_url'], self.vin),
+                data=json.dumps({
+                    'data': {
+                        'type': 'HvacControl',
+                        'attributes': attributes
+                    }
+                }),
+                headers={'Content-Type': 'application/vnd.api+json', 'X-Vehicle-Gateway': self.vin}
+            )
+        else:
+            if srp is not None:
+                attributes['srp'] = srp
+            resp = self._post(
+                '{}v1/cars/{}/actions/hvac-start'.format(self.session.settings['car_adapter_base_url'], self.vin),
+                data=json.dumps({
+                    'data': {
+                        'type': 'HvacStart',
+                        'attributes': attributes
+                    }
+                }),
+                headers={'Content-Type': 'application/vnd.api+json'}
+            )
         body = resp.json()
         if 'errors' in body:
             raise ValueError(body['errors'])
         return body
 
-    def lock_unlock(self, srp: str, action: str, group: LockableDoorGroup=None):
+    def lock_unlock(self, srp: str=None, action: str='lock', group: LockableDoorGroup=None):
         if Feature.APP_DOOR_LOCKING not in self.features:
             return
         assert action in ('lock', 'unlock')
-        if group is None:
-            group = LockableDoorGroup.DOORS_AND_HATCH
-        resp = self._post(
-            '{}v1/cars/{}/actions/lock-unlock"'.format(self.session.settings['car_adapter_base_url'], self.vin),
-            data=json.dumps({
-                'data': {
-                    'type': 'LockUnlock',
-                    'attributes': {
-                        'lock': action,
-                        'doorType': group.value,
-                        'srp': srp
+        if self.session.region == 'JP':
+            # JP のアプリには遠隔解錠のUI/APIが存在しない (盗難防止のための仕様と見られる)
+            if action == 'unlock':
+                raise NotImplementedError('NissanConnect JP does not expose a remote unlock action')
+            resp = self._post(
+                '{}nissan/remote-action/v2/cars/{}/lock'.format(self.session.settings['user_base_url'], self.vin),
+                data=json.dumps({
+                    'data': {'type': 'ncRemoteLock', 'attributes': {}}
+                }),
+                headers={'Content-Type': 'application/vnd.api+json', 'X-Vehicle-Gateway': self.vin}
+            )
+        else:
+            if group is None:
+                group = LockableDoorGroup.DOORS_AND_HATCH
+            resp = self._post(
+                '{}v1/cars/{}/actions/lock-unlock"'.format(self.session.settings['car_adapter_base_url'], self.vin),
+                data=json.dumps({
+                    'data': {
+                        'type': 'LockUnlock',
+                        'attributes': {
+                            'lock': action,
+                            'doorType': group.value,
+                            'srp': srp
+                        }
                     }
-                }
-            }),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
+                }),
+                headers={'Content-Type': 'application/vnd.api+json'}
+            )
         body = resp.json()
         if 'errors' in body:
             raise ValueError(body['errors'])
         return body
 
-    def lock(self, srp: str, group: LockableDoorGroup=None):
+    def lock(self, srp: str=None, group: LockableDoorGroup=None):
         return self.lock_unlock(srp, 'lock', group)
 
-    def unlock(self, srp: str, group: LockableDoorGroup=None):
+    def unlock(self, srp: str=None, group: LockableDoorGroup=None):
         return self.lock_unlock(srp, 'unlock', group)
 
     def fetch_hvac_status(self):
-        if Feature.INTERIOR_TEMP_SETTINGS not in self.features and Feature.TEMPERATURE not in self.features:
+        # JP の ICE 車はエアコン系の feature を持たないが、遠隔エンジン始動が
+        # あれば hvac-status は remoteEngineStatus を返す
+        if (Feature.INTERIOR_TEMP_SETTINGS not in self.features
+                and Feature.TEMPERATURE not in self.features
+                and Feature.REMOTE_ENGINE_START not in self.features):
             return
         
         resp = self._get(
@@ -622,6 +904,9 @@ class Vehicle:
         self.next_target_temperature = hvac_data.get('nextTargetTemperature')
         if 'hvacStatus' in hvac_data:
             self.hvac_status = hvac_data['hvacStatus'] == "on"
+        if 'remoteEngineStatus' in hvac_data:
+            self.remote_engine_status = hvac_data['remoteEngineStatus']
+            _LOGGER.debug("Remote engine status: %s", self.remote_engine_status)
         if 'nextHvacStartDate' in hvac_data:
             self.next_hvac_start_date = datetime.datetime.fromisoformat(hvac_data['nextHvacStartDate'].replace('Z','+00:00'))
         if 'lastUpdateTime' in hvac_data:
@@ -641,6 +926,8 @@ class Vehicle:
         return body
 
     def fetch_battery_status(self):
+        if not self.battery_supported:
+            return
         self.fetch_battery_status_leaf()
         if self.model_name == "Ariya":
             self.fetch_battery_status_ariya()
@@ -657,7 +944,9 @@ class Vehicle:
             raise ValueError(body['errors'])
 
         if not 'data' in body or not 'attributes' in body['data']:
+            # この車はバッテリ情報を返さないので以後問い合わせない
             self.battery_supported = False
+            return
 
         battery_data = body['data']['attributes']
         self.battery_capacity = battery_data.get('batteryCapacity')  # kWh
@@ -737,6 +1026,12 @@ class Vehicle:
         if 'errors' in body:
             raise ValueError(body['errors'])
 
+    def _format_trip_date(self, value: datetime.date):
+        """JP の trip-history は YYYYMMDD、EU は YYYY-MM-DD を取る。"""
+        if self.session.region == 'JP':
+            return value.isoformat().replace('-', '')
+        return value.isoformat()
+
     def fetch_trip_histories(self, period: Period=None, start: datetime.date=None, end: datetime.date=None):
         if period is None:
             period = Period.DAILY
@@ -751,8 +1046,8 @@ class Vehicle:
             '{}v1/cars/{}/trip-history'.format(self.session.settings['car_adapter_base_url'], self.vin),
             params={
                 'type': period.value,
-                'start': start.isoformat(),
-                'end': end.isoformat()
+                'start': self._format_trip_date(start),
+                'end': self._format_trip_date(end)
             }
         )
         body = resp.json()
@@ -841,13 +1136,38 @@ class Vehicle:
         # TODO
         pass
 
+    def fetch_health_status(self):
+        """警告灯とメンテナンス情報。"""
+        if self.app_config:
+            if not any(self.app_available('healthStatus', key) for key in HEALTH_LAMPS):
+                return
+        elif Feature.VEHICLE_HEALTH_REPORT not in self.features:
+            return
+
+        resp = self._get(
+            '{}v1/cars/{}/health-status'.format(self.session.settings['car_adapter_base_url'], self.vin),
+            headers={'Content-Type': 'application/vnd.api+json'}
+        )
+        body = resp.json()
+        if 'errors' in body:
+            _LOGGER.warning(body['errors'])
+            return
+        health_data = body['data']['attributes']
+        self.malfunction_lamps = health_data.get('malfunctionIndicatorLamps', {})
+        self.maintenance = health_data.get('maintenance', {})
+        if 'lastUpdateTime' in health_data:
+            self.health_status_last_updated = datetime.datetime.fromisoformat(health_data['lastUpdateTime'].replace('Z','+00:00'))
+
     def fetch_cockpit(self):
         resp = self._get(
             "{}v1/cars/{}/cockpit".format(self.session.settings['car_adapter_base_url'], self.vin)
         )
         body = resp.json()
+        # 全ての車種が cockpit に対応しているわけではないので、
+        # ここで失敗してもセットアップ全体は落とさない
         if 'errors' in body:
-            raise ValueError(body['errors'])
+            _LOGGER.warning(body['errors'])
+            return
 
         cockpit_data = body['data']['attributes']
         self.eco_score = cockpit_data.get('ecoScore')
