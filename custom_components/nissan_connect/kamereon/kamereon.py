@@ -391,7 +391,6 @@ class KamereonSession:
             _registry[VEHICLES][vehicle.vin] = vehicle
         return vehicles
 
-
     def _fetch_app_config(self, vin):
         """アプリ自身の機能可用性マップ。取れなければ空を返す。"""
         try:
