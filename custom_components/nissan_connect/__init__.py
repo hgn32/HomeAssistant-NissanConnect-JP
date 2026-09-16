@@ -1,5 +1,6 @@
 import logging
 from datetime import timedelta
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from .kamereon import NCISession
 from .coordinator import KamereonFetchCoordinator, KamereonPollCoordinator, StatisticsCoordinator
 from .const import *
@@ -50,10 +51,18 @@ async def async_setup_entry(hass, entry):
     }
 
     _LOGGER.info("Logging in to service")
-    await hass.async_add_executor_job(kamereon_session.login,
-                                      config.get("email"),
-                                      config.get("password")
-                                      )
+    try:
+        await hass.async_add_executor_job(kamereon_session.login,
+                                          config.get("email"),
+                                          config.get("password")
+                                          )
+    except Exception as err:
+        # 資格情報が拒否された場合のみ再認証を促し、それ以外
+        # (サービス側の障害など) は Home Assistant に再試行させる
+        if "Invalid credentials" in str(err):
+            raise ConfigEntryAuthFailed(str(err)) from err
+        raise ConfigEntryNotReady(
+            "NissanConnect login failed: {}".format(err)) from err
 
     _LOGGER.debug("Finding vehicles")
     for vehicle in await hass.async_add_executor_job(kamereon_session.fetch_vehicles):

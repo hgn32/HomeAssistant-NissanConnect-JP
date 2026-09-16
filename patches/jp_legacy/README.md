@@ -58,3 +58,12 @@ logger:
   そのため basic / なし も順に試す実装にしている。
 * KAuth が発行したアクセストークンを JP の BFF がそのまま受け付けるかは、
   正規の資格情報でしか確認できない。
+
+## 追記 (2026-09-16)
+
+* BFF の `nissan/account/v1/login` は復旧した。誤った資格情報に対して
+  約1秒で `400 {"code":"0205","detail":"User authentication error"}` を返す
+  （障害中は10秒待って `500 / 0204 Internal server error(KAuth)`）。
+  つまり 9/15 夜の件は日産側の一時障害だった。
+* 同じ KAuth フォールバックは `custom_components/nissan_connect/`
+  （パッケージ構成の本体）側にも移植済み。こちらのフラット版は参考用。

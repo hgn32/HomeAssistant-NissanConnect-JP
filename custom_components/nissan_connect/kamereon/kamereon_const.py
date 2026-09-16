@@ -21,9 +21,12 @@ SETTINGS_MAP = {
             'client_id': 'a-ncb-nc-android-prod',
             'client_secret': '6GKIax7fGT5yPHuNmWNVOc4q5POBw1WRSW39ubRA8WPBmQ7MOxhm75EsmKMKENem',
             'scope': 'openid profile vehicles',
-            'auth_base_url': 'https://prod.eu2.auth.kamereon.org/kauth/',
+            # JP は EU とは別の KAuth ホストを使う
+            'auth_base_url': 'https://prod.jp.auth.kamereon.org/kauth/',
             'realm': 'a-ncb-prod',
             'redirect_uri': 'org.kamereon.service.nci:/oauth2redirect',
+            # NissanConnect (NCX) アプリの BFF ログイン用
+            'app_id': 'jp.co.nissan.nissanconnect.ncx',
             # 'car_adapter_base_url': 'https://alliance-platform-caradapter-prod.apps.eu2.kamereon.io/car-adapter/',
             # 'notifications_base_url': 'https://alliance-platform-notifications-prod.apps.eu2.kamereon.io/notifications/',
             # 'user_adapter_base_url': 'https://alliance-platform-usersadapter-prod.apps.eu2.kamereon.io/user-adapter/',

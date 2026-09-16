@@ -12,6 +12,7 @@ import time
 from oauthlib.common import generate_nonce
 from oauthlib.oauth2 import TokenExpiredError
 from requests_oauthlib import OAuth2Session
+from urllib.parse import urlparse, parse_qs
 from .kamereon_const import *
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ class KamereonSession:
     unique_id = None
 
     def __init__(self, region, unique_id=None):
+        self.region = region
         self.settings = SETTINGS_MAP[self.tenant][region]
         session = requests.session()
         self.session = session
@@ -98,6 +100,164 @@ class KamereonSession:
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
     def login(self, username=None, password=None):
+        if self.region == 'JP':
+            return self._login_jp(username, password)
+        return self._login_oauth(username, password)
+
+    def _login_jp(self, username=None, password=None):
+        """JP: BFF のログインAPIを試し、駄目なら KAuth に直接ログインする。"""
+        if username is not None and password is not None:
+            self._username = username
+            self._password = password
+        else:
+            username = self._username
+            password = self._password
+
+        self.session = requests.session()
+
+        problems = []
+        try:
+            token = self._login_jp_bff(username, password)
+            _LOGGER.debug("Logged in via BFF login endpoint")
+        except Exception as bff_error:  # noqa: BLE001
+            problems.append('BFF: {}'.format(bff_error))
+            _LOGGER.warning(
+                "BFF login failed (%s) - falling back to direct KAuth login", bff_error)
+            try:
+                token = self._login_jp_kauth(username, password)
+                _LOGGER.info("Logged in via direct KAuth login")
+            except Exception as kauth_error:  # noqa: BLE001
+                problems.append('KAuth: {}'.format(kauth_error))
+                raise RuntimeError(' | '.join(problems)) from kauth_error
+
+        self._oauth = requests.session()
+        self._oauth.headers.update({'Authorization': 'Bearer ' + token})
+
+    def _login_jp_bff(self, username, password):
+        """NissanConnect (NCX) アプリと同じ、BFF 経由のログイン。"""
+        auth_url = '{}nissan/account/v1/login'.format(
+            self.settings['user_base_url'])
+        response = self.session.post(
+            auth_url,
+            json={
+                'data': {
+                    'type': 'token',
+                    'attributes': {
+                        'username': username,
+                        'password': password,
+                    }
+                }
+            },
+            headers={'x-app-id': self.settings.get(
+                'app_id', 'jp.co.nissan.nissanconnect.ncx')},
+            timeout=45,
+        )
+        body = response.json()
+        if 'errors' in body:
+            error = body['errors'][0]
+            raise RuntimeError(error.get('detail', str(error)))
+        return body['data']['attributes']['access_token']
+
+    def _login_jp_kauth(self, username, password):
+        """KAuth (ForgeRock) に直接ログインしてアクセストークンを得る。"""
+        base_url = self.settings['auth_base_url']
+        realm = self.settings['realm']
+        session = requests.session()
+
+        auth_url = '{}json/realms/root/realms/{}/authenticate'.format(
+            base_url, realm)
+        headers = {
+            'Accept-Api-Version': API_VERSION,
+            'X-Username': 'anonymous',
+            'X-Password': 'anonymous',
+            'Accept': 'application/json',
+        }
+        response = session.post(auth_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        challenge = response.json()
+
+        for callback in challenge.get('callbacks', []):
+            if callback['type'] == 'NameCallback':
+                callback['input'][0]['value'] = username
+            elif callback['type'] == 'PasswordCallback':
+                callback['input'][0]['value'] = password
+
+        post_headers = dict(headers)
+        post_headers['Content-Type'] = 'application/json'
+        response = session.post(
+            auth_url, headers=post_headers, data=json.dumps(challenge), timeout=30)
+        if response.status_code == 401:
+            raise RuntimeError('Invalid credentials')
+        response.raise_for_status()
+        auth_data = response.json()
+        if 'tokenId' not in auth_data:
+            raise RuntimeError(
+                'Unexpected KAuth response: {}'.format(response.text[:200]))
+
+        oauth_realm = auth_data.get('realm') or '/{}'.format(realm)
+
+        response = session.get(
+            '{}oauth2{}/authorize'.format(base_url, oauth_realm),
+            params={
+                'client_id': self.settings['client_id'],
+                'redirect_uri': self.settings['redirect_uri'],
+                'response_type': 'code',
+                'scope': self.settings['scope'],
+                'nonce': generate_nonce(),
+            },
+            allow_redirects=False,
+            timeout=30,
+        )
+        location = response.headers.get('location', '')
+        code = self._extract_auth_code(location)
+        if not code:
+            raise RuntimeError('No authorization code returned (http {}, location {})'.format(
+                response.status_code, location[:200]))
+
+        payload = {
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': self.settings['redirect_uri'],
+            'client_id': self.settings['client_id'],
+        }
+        client_secret = self.settings.get('client_secret')
+        # クライアント認証方式が不明なため post -> basic -> なし の順に試す
+        attempts = []
+        if client_secret:
+            attempts.append(('client_secret_post', dict(
+                payload, client_secret=client_secret), None))
+            attempts.append(('client_secret_basic', payload,
+                             (self.settings['client_id'], client_secret)))
+        attempts.append(('none', payload, None))
+
+        token_url = '{}oauth2{}/access_token'.format(base_url, oauth_realm)
+        last_error = None
+        for method, data, auth in attempts:
+            response = session.post(token_url, data=data, auth=auth, timeout=30)
+            if response.status_code == 200:
+                token = response.json().get('access_token')
+                if token:
+                    _LOGGER.debug(
+                        "KAuth token obtained (client auth: %s)", method)
+                    return token
+            last_error = '{} -> {} {}'.format(
+                method, response.status_code, response.text[:200])
+            _LOGGER.debug("KAuth token request failed: %s", last_error)
+
+        raise RuntimeError('Token request failed ({})'.format(last_error))
+
+    @staticmethod
+    def _extract_auth_code(location):
+        if not location:
+            return None
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+        if not params.get('code'):
+            params = parse_qs(parsed.fragment)
+        codes = params.get('code')
+        return codes[0] if codes else None
+
+    def _login_oauth(self, username=None, password=None):
         if username is not None and password is not None:
             # Cache credentials
             self._username = username
@@ -200,11 +360,31 @@ class KamereonSession:
         return self._user_id
 
     def fetch_vehicles(self):
+        if self.region == 'JP':
+            return self._fetch_vehicles_jp()
         resp = self.oauth.get(
             '{}v5/users/{}/cars'.format(self.settings['user_base_url'], self.user_id)
         )
         vehicles = []
         for vehicle_data in resp.json()['data']:
+            vehicle = Vehicle(vehicle_data, self.user_id)
+            vehicles.append(vehicle)
+            _registry[VEHICLES][vehicle.vin] = vehicle
+        return vehicles
+
+
+    def _fetch_vehicles_jp(self):
+        """JP の BFF は EU と別系統 (token-info + car details) を使う。"""
+        resp = self.oauth.get(
+            '{}nissan/account/v1/token-info'.format(self.settings['user_base_url'])
+        )
+        vehicles = []
+        for vehicle_baseinfo in resp.json()['data']['attributes']['vehicles']:
+            vehicle_data = self.oauth.get(
+                '{}nissan/config/v1/cars/{}/details'.format(
+                    self.settings['user_base_url'], vehicle_baseinfo['vin'])
+            ).json()
+            vehicle_data['services'] = vehicle_baseinfo.get('services', [])
             vehicle = Vehicle(vehicle_data, self.user_id)
             vehicles.append(vehicle)
             _registry[VEHICLES][vehicle.vin] = vehicle
@@ -232,34 +412,56 @@ class Vehicle:
     def __init__(self, data, user_id):
         self.user_id = user_id
         self.vin = data['vin'].upper()
-        self.features = []
+        # JP (nissan/config/v1/cars/{vin}/details) は model が dict で返る。
+        # EU (v5/users/{id}/cars) は modelName などがトップレベルにある。
+        model = data.get('model')
+        jp_payload = isinstance(model, dict)
+        self.features = [Feature.BATTERY_STATUS] if jp_payload else []
 
         # Try to parse every feature, but dont fail if we dont recognise one
         for u in data.get('services', []):
-            if u['activationState'] == "ACTIVATED":
-                try:
-                    self.features.append(Feature(str(u['id'])))
-                except ValueError:
-                    _LOGGER.debug(f"Unknown feature {str(u['id'])}")
-                    pass
-        
+            if isinstance(u, dict):
+                if u.get('activationState') != "ACTIVATED":
+                    continue
+                feature_id = str(u['id'])
+            else:
+                # JP の token-info は id の配列で返る
+                feature_id = str(u)
+            try:
+                feature = Feature(feature_id)
+                if feature not in self.features:
+                    self.features.append(feature)
+            except ValueError:
+                _LOGGER.debug(f"Unknown feature {feature_id}")
+                pass
+
         _LOGGER.debug("Active features: %s", self.features)
 
+        color = data.get('color')
         self.can_generation = data.get('canGeneration')
-        self.color = data.get('color')
+        self.color = color.get('nameG2B') if isinstance(color, dict) else color
         self.energy = data.get('energy')
         self.vehicle_gateway = data.get('carGateway')
         self.battery_code = data.get('batteryCode')
         self.engine_type = data.get('engineType')
         self.first_registration_date = data.get('firstRegistrationDate')
         self.ice_or_ev = data.get('iceEvFlag')
-        self.model_name = data.get('modelName')
-        self.model_code = data.get('modelCode')
-        self.model_year = data.get('modelYear')
-        self.nickname = data.get('nickname')
-        self.phase = data.get('phase')
-        self.picture_url = data.get('pictureURL')
-        self.privacy_mode = data.get('privacyMode')
+        if jp_payload:
+            self.model_name = model.get('displayName')
+            self.model_code = model.get('code')
+            self.model_year = model.get('year')
+            self.nickname = model.get('name')
+            self.phase = None
+            self.picture_url = data.get('bfpImageUrl')
+            self.privacy_mode = None
+        else:
+            self.model_name = data.get('modelName')
+            self.model_code = data.get('modelCode')
+            self.model_year = data.get('modelYear')
+            self.nickname = data.get('nickname')
+            self.phase = data.get('phase')
+            self.picture_url = data.get('pictureURL')
+            self.privacy_mode = data.get('privacyMode')
         self.registration_number = data.get('registrationNumber')
         self.battery_supported = True
         self.battery_capacity = None
@@ -737,6 +939,12 @@ class Vehicle:
         if 'errors' in body:
             raise ValueError(body['errors'])
 
+    def _format_trip_date(self, value: datetime.date):
+        """JP の trip-history は YYYYMMDD、EU は YYYY-MM-DD を取る。"""
+        if self.session.region == 'JP':
+            return value.isoformat().replace('-', '')
+        return value.isoformat()
+
     def fetch_trip_histories(self, period: Period=None, start: datetime.date=None, end: datetime.date=None):
         if period is None:
             period = Period.DAILY
@@ -751,8 +959,8 @@ class Vehicle:
             '{}v1/cars/{}/trip-history'.format(self.session.settings['car_adapter_base_url'], self.vin),
             params={
                 'type': period.value,
-                'start': start.isoformat(),
-                'end': end.isoformat()
+                'start': self._format_trip_date(start),
+                'end': self._format_trip_date(end)
             }
         )
         body = resp.json()
@@ -846,8 +1054,11 @@ class Vehicle:
             "{}v1/cars/{}/cockpit".format(self.session.settings['car_adapter_base_url'], self.vin)
         )
         body = resp.json()
+        # 全ての車種が cockpit に対応しているわけではないので、
+        # ここで失敗してもセットアップ全体は落とさない
         if 'errors' in body:
-            raise ValueError(body['errors'])
+            _LOGGER.warning(body['errors'])
+            return
 
         cockpit_data = body['data']['attributes']
         self.eco_score = cockpit_data.get('ecoScore')
