@@ -103,3 +103,4 @@ This integration exposes the following entities. Please note that entities will 
   - Flash Lights
   - Honk Horn
   - Start Charge
+  - Lock Doors (JP only; the app itself has no remote unlock action)
