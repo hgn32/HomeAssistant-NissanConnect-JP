@@ -27,10 +27,6 @@ SETTINGS_MAP = {
             'redirect_uri': 'org.kamereon.service.nci:/oauth2redirect',
             # NissanConnect (NCX) アプリの BFF ログイン用
             'app_id': 'jp.co.nissan.nissanconnect.ncx',
-            # 'car_adapter_base_url': 'https://alliance-platform-caradapter-prod.apps.eu2.kamereon.io/car-adapter/',
-            # 'notifications_base_url': 'https://alliance-platform-notifications-prod.apps.eu2.kamereon.io/notifications/',
-            # 'user_adapter_base_url': 'https://alliance-platform-usersadapter-prod.apps.eu2.kamereon.io/user-adapter/',
-            # 'user_base_url': 'https://nci-bff-web-prod.apps.eu2.kamereon.io/bff-web/'
             'car_adapter_base_url': 'https://nc-app-bff-prod.apps.jp.kamereon.io/nc-app-bff/alliance/car-adapter/',
             'notifications_base_url': 'https://nc-app-bff-prod.apps.jp.kamereon.io/nc-app-bff/alliance/notifications/',
             'user_adapter_base_url': 'https://nc-app-bff-prod.apps.jp.kamereon.io/nc-app-bff/alliance/user-adapter/',
