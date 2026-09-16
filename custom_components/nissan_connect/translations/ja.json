@@ -170,6 +170,11 @@
       "monthly_trips": {
         "name": "今月のトリップ数"
       }
+    },
+    "lock": {
+      "door_lock": {
+        "name": "ドアロック"
+      }
     }
   },
   "selector": {

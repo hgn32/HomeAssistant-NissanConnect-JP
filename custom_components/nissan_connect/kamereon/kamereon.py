@@ -741,6 +741,36 @@ class Vehicle:
         DeleteSpeedRestrictions
     """
 
+    def lock(self):
+        if Feature.APP_DOOR_LOCKING not in self.features:
+            return
+        resp = self._post(
+            '{}cars/{}/lock'.format(self.session.settings['nissan_remote_base_url'], self.vin),
+            data=json.dumps({
+                'data': {'type': 'Lock'}
+            }),
+            headers={'Content-Type': 'application/vnd.api+json'}
+        )
+        body = resp.json()
+        if 'errors' in body:
+            raise ValueError(body['errors'])
+        return body
+
+    def unlock(self):
+        if Feature.APP_DOOR_LOCKING not in self.features:
+            return
+        resp = self._post(
+            '{}cars/{}/unlock'.format(self.session.settings['nissan_remote_base_url'], self.vin),
+            data=json.dumps({
+                'data': {'type': 'Unlock'}
+            }),
+            headers={'Content-Type': 'application/vnd.api+json'}
+        )
+        body = resp.json()
+        if 'errors' in body:
+            raise ValueError(body['errors'])
+        return body
+
     def control_charging(self, action: str, srp: str=None):
         assert action in ('stop', 'start')
         if action == 'start' and Feature.CHARGING_START not in self.features:
