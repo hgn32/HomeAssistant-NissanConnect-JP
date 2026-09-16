@@ -385,10 +385,27 @@ class KamereonSession:
                     self.settings['user_base_url'], vehicle_baseinfo['vin'])
             ).json()
             vehicle_data['services'] = vehicle_baseinfo.get('services', [])
+            vehicle_data['appConfig'] = self._fetch_app_config(vehicle_baseinfo['vin'])
             vehicle = Vehicle(vehicle_data, self.user_id)
             vehicles.append(vehicle)
             _registry[VEHICLES][vehicle.vin] = vehicle
         return vehicles
+
+
+    def _fetch_app_config(self, vin):
+        """アプリ自身の機能可用性マップ。取れなければ空を返す。"""
+        try:
+            body = self.oauth.get(
+                '{}nissan/config/v1/cars/{}/features'.format(
+                    self.settings['user_base_url'], vin)
+            ).json()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not fetch the app feature map: %s", err)
+            return {}
+        if 'errors' in body:
+            _LOGGER.warning("Could not fetch the app feature map: %s", body['errors'])
+            return {}
+        return body.get('data', {}).get('attributes', {}) or {}
 
 
 class NCISession(KamereonSession):
@@ -416,6 +433,9 @@ class Vehicle:
         # EU (v5/users/{id}/cars) は modelName などがトップレベルにある。
         model = data.get('model')
         jp_payload = isinstance(model, dict)
+        # アプリの機能可用性マップ (JP のみ)。これがあるなら
+        # services の推定よりこちらを優先する。
+        self.app_config = data.get('appConfig') or {}
         self.features = []
 
         # Try to parse every feature, but dont fail if we dont recognise one
@@ -505,6 +525,9 @@ class Vehicle:
         }
         self.lock_status = None
         self.lock_status_last_updated = None
+        self.malfunction_lamps = {}
+        self.maintenance = {}
+        self.health_status_last_updated = None
         self.eco_score = None
         self.fuel_autonomy = None
         self.fuel_consumption = None
@@ -514,6 +537,28 @@ class Vehicle:
         self.fuel_quantity = None
         self.mileage = None
         self.total_mileage = None
+
+    def app_available(self, *path):
+        """機能可用性マップの available を返す。マップが無ければ None。"""
+        if not self.app_config:
+            return None
+        node = self.app_config
+        for key in path:
+            if not isinstance(node, dict) or key not in node:
+                return None
+            node = node[key]
+        if isinstance(node, dict):
+            return node.get('available')
+        return None
+
+    def available_health_lamps(self):
+        """この車で対応している警告灯のキーを返す。"""
+        if self.app_config:
+            return [key for key in HEALTH_LAMPS
+                    if self.app_available('healthStatus', key)]
+        # マップが無い場合は実際に返ってきたものを使う
+        return [key for key, payload_key in HEALTH_LAMPS.items()
+                if payload_key in self.malfunction_lamps]
 
     def _request(self, method, url, headers=None, params=None, data=None, max_retries=3):
         for attempt in range(max_retries):
@@ -559,6 +604,7 @@ class Vehicle:
         self.fetch_battery_status()
         self.fetch_hvac_status()
         self.fetch_lock_status()
+        self.fetch_health_status()
 
     def refresh_location(self):
         if Feature.MY_CAR_FINDER not in self.features:
@@ -1064,6 +1110,28 @@ class Vehicle:
     def update_notification_settings(self):
         # TODO
         pass
+
+    def fetch_health_status(self):
+        """警告灯とメンテナンス情報。"""
+        if self.app_config:
+            if not any(self.app_available('healthStatus', key) for key in HEALTH_LAMPS):
+                return
+        elif Feature.VEHICLE_HEALTH_REPORT not in self.features:
+            return
+
+        resp = self._get(
+            '{}v1/cars/{}/health-status'.format(self.session.settings['car_adapter_base_url'], self.vin),
+            headers={'Content-Type': 'application/vnd.api+json'}
+        )
+        body = resp.json()
+        if 'errors' in body:
+            _LOGGER.warning(body['errors'])
+            return
+        health_data = body['data']['attributes']
+        self.malfunction_lamps = health_data.get('malfunctionIndicatorLamps', {})
+        self.maintenance = health_data.get('maintenance', {})
+        if 'lastUpdateTime' in health_data:
+            self.health_status_last_updated = datetime.datetime.fromisoformat(health_data['lastUpdateTime'].replace('Z','+00:00'))
 
     def fetch_cockpit(self):
         resp = self._get(

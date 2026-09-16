@@ -36,6 +36,22 @@ SETTINGS_MAP = {
 }
 
 
+# アプリの機能可用性マップ (nissan/config/v1/cars/{vin}/features) のキー
+# -> health-status が返す malfunctionIndicatorLamps のキー
+HEALTH_LAMPS = {
+    'brakeWarning': 'brakeFluidWarning',
+    'absWarning': 'absWarning',
+    'airbagWarning': 'airbagWarning',
+    'lampRequest': 'lampRequest',
+    'oilPressureWarning': 'oilPressureWarning',
+    'tyrePressureWarning': 'tyrePressureWarning',
+    'parkingLightWarning': 'parkingLightWarning',
+    'powerSteeringWarning': 'powerSteeringWarning',
+    'batteryWarning': 'batteryWarning',
+    'powerLimitationAlert': 'powerLimitationAlert',
+}
+
+
 USERS = 'users'
 VEHICLES = 'vehicles'
 CATEGORIES = 'categories'
