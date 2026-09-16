@@ -112,6 +112,9 @@
       },
       "door_lock": {
         "name": "Lock Doors"
+      },
+      "engine_start": {
+        "name": "Start Engine"
       }
     },
     "climate": {

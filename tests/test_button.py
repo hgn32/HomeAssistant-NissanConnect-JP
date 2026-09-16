@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from homeassistant.helpers import entity_registry as er
 from custom_components.nissan_connect.const import DOMAIN, DATA_VEHICLES, DATA_COORDINATOR_POLL, DATA_COORDINATOR_FETCH, DATA_COORDINATOR_STATISTICS
-from custom_components.nissan_connect.kamereon.kamereon_const import Feature
+from custom_components.nissan_connect.kamereon.kamereon_const import Feature, HVACAction
 
 from custom_components.nissan_connect.button import (
     async_setup_entry,
@@ -10,6 +10,7 @@ from custom_components.nissan_connect.button import (
     HornLightsButtons,
     ChargeControlButtons,
     DoorLockButton,
+    EngineStartButton,
 )
 
 
@@ -136,3 +137,33 @@ def test_door_lock_button():
 
     button.press()
     vehicle.lock.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_with_engine_start(mock_config, mock_async_add_entities):
+    hass = MagicMock()
+    vehicle = MagicMock(features=[Feature.REMOTE_ENGINE_START])
+    vehicle.session.region = 'JP'
+    hass.data = {
+        DOMAIN: {
+            'test_account': {
+                DATA_VEHICLES: {'vehicle_1': vehicle},
+                DATA_COORDINATOR_POLL: MagicMock(),
+                DATA_COORDINATOR_FETCH: MagicMock(),
+                DATA_COORDINATOR_STATISTICS: MagicMock(),
+            }
+        }
+    }
+
+    await async_setup_entry(hass, mock_config, mock_async_add_entities)
+    entities = mock_async_add_entities.call_args[0][0]
+    assert any(isinstance(e, EngineStartButton) for e in entities)
+
+
+def test_engine_start_button():
+    coordinator = MagicMock()
+    vehicle = MagicMock()
+    button = EngineStartButton(coordinator, vehicle)
+
+    button.press()
+    vehicle.set_hvac_status.assert_called_once_with(HVACAction.START)

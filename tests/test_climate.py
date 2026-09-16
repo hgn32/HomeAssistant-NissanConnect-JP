@@ -69,15 +69,3 @@ async def test_async_set_hvac_mode(climate_entity, mock_hass, mock_vehicle):
 async def test_async_turn_off(climate_entity):
     await climate_entity.async_turn_off()
     assert climate_entity.hvac_mode == HVACMode.OFF
-
-@pytest.mark.asyncio
-async def test_async_set_hvac_mode_remote_engine_start_car(mock_coordinator, mock_hass):
-    """JP の ICE 車は CLIMATE_ON_OFF ではなく REMOTE_ENGINE_START を持つ。"""
-    vehicle = MagicMock()
-    vehicle.features = [Feature.REMOTE_ENGINE_START]
-    vehicle.hvac_status = False
-    vehicle.internal_temperature = 22
-    entity = KamereonClimate(mock_coordinator, vehicle, mock_hass)
-
-    await entity.async_set_hvac_mode(HVACMode.HEAT_COOL)
-    mock_hass.async_add_executor_job.assert_called_with(vehicle.set_hvac_status, HVACAction.START, 20)

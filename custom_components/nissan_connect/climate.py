@@ -25,9 +25,7 @@ async def async_setup_entry(hass, config, async_add_entities):
     coordinator = hass.data[DOMAIN][account_id][DATA_COORDINATOR_FETCH]
 
     for vehicle in data:
-        # JP の ICE 車は CLIMATE_ON_OFF ではなく REMOTE_ENGINE_START を持つ
-        if (Feature.CLIMATE_ON_OFF in data[vehicle].features
-                or Feature.REMOTE_ENGINE_START in data[vehicle].features):
+        if Feature.CLIMATE_ON_OFF in data[vehicle].features:
             async_add_entities([KamereonClimate(coordinator, data[vehicle], hass)], update_before_add=True)
 
 
@@ -93,8 +91,7 @@ class KamereonClimate(KamereonEntity, ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode):
         """Set new target hvac mode."""
-        if (Feature.CLIMATE_ON_OFF not in self.vehicle.features
-                and Feature.REMOTE_ENGINE_START not in self.vehicle.features):
+        if Feature.CLIMATE_ON_OFF not in self.vehicle.features:
             raise NotImplementedError()
 
         if hvac_mode == HVACMode.OFF:

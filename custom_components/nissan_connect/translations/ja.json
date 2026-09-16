@@ -112,6 +112,9 @@
       },
       "door_lock": {
         "name": "ドア施錠"
+      },
+      "engine_start": {
+        "name": "エンジン始動"
       }
     },
     "climate": {
