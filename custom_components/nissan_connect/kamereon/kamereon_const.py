@@ -61,6 +61,7 @@ class LockStatus(enum.Enum):
 
 class Door(enum.Enum):
     HATCH = 'hatch'
+    HOOD = 'hood'
     FRONT_LEFT = 'front_left'
     FRONT_RIGHT = 'front_right'
     REAR_LEFT = 'rear_left'

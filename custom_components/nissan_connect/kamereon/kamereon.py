@@ -416,7 +416,7 @@ class Vehicle:
         # EU (v5/users/{id}/cars) は modelName などがトップレベルにある。
         model = data.get('model')
         jp_payload = isinstance(model, dict)
-        self.features = [Feature.BATTERY_STATUS] if jp_payload else []
+        self.features = []
 
         # Try to parse every feature, but dont fail if we dont recognise one
         for u in data.get('services', []):
@@ -490,6 +490,8 @@ class Vehicle:
         self.external_temperature = None
         self.internal_temperature = None
         self.hvac_status = None
+        # JP: hvac-status が返す遠隔エンジン始動の状態 (意味は未解明)
+        self.remote_engine_status = None
         self.next_hvac_start_date = None
         self.next_target_temperature = None
         self.hvac_status_last_updated = None
@@ -498,7 +500,8 @@ class Vehicle:
             Door.FRONT_RIGHT: None,
             Door.REAR_LEFT: None,
             Door.REAR_RIGHT: None,
-            Door.HATCH: None
+            Door.HATCH: None,
+            Door.HOOD: None
         }
         self.lock_status = None
         self.lock_status_last_updated = None
@@ -617,6 +620,8 @@ class Vehicle:
         self.door_status[Door.REAR_LEFT] = LockStatus(lock_data.get('doorStatusRearLeft', LockStatus.CLOSED))
         self.door_status[Door.REAR_RIGHT] = LockStatus(lock_data.get('doorStatusRearRight', LockStatus.CLOSED))
         self.door_status[Door.HATCH] = LockStatus(lock_data.get('hatchStatus', LockStatus.CLOSED))
+        if 'engineHoodStatus' in lock_data:
+            self.door_status[Door.HOOD] = LockStatus(lock_data['engineHoodStatus'])
         self.lock_status = LockStatus(lock_data.get('lockStatus', LockStatus.LOCKED))
         self.lock_status_last_updated = datetime.datetime.fromisoformat(lock_data['lastUpdateTime'].replace('Z','+00:00'))
 
@@ -808,7 +813,11 @@ class Vehicle:
         return self.lock_unlock(srp, 'unlock', group)
 
     def fetch_hvac_status(self):
-        if Feature.INTERIOR_TEMP_SETTINGS not in self.features and Feature.TEMPERATURE not in self.features:
+        # JP の ICE 車はエアコン系の feature を持たないが、遠隔エンジン始動が
+        # あれば hvac-status は remoteEngineStatus を返す
+        if (Feature.INTERIOR_TEMP_SETTINGS not in self.features
+                and Feature.TEMPERATURE not in self.features
+                and Feature.REMOTE_ENGINE_START not in self.features):
             return
         
         resp = self._get(
@@ -824,6 +833,9 @@ class Vehicle:
         self.next_target_temperature = hvac_data.get('nextTargetTemperature')
         if 'hvacStatus' in hvac_data:
             self.hvac_status = hvac_data['hvacStatus'] == "on"
+        if 'remoteEngineStatus' in hvac_data:
+            self.remote_engine_status = hvac_data['remoteEngineStatus']
+            _LOGGER.debug("Remote engine status: %s", self.remote_engine_status)
         if 'nextHvacStartDate' in hvac_data:
             self.next_hvac_start_date = datetime.datetime.fromisoformat(hvac_data['nextHvacStartDate'].replace('Z','+00:00'))
         if 'lastUpdateTime' in hvac_data:
@@ -843,6 +855,8 @@ class Vehicle:
         return body
 
     def fetch_battery_status(self):
+        if not self.battery_supported:
+            return
         self.fetch_battery_status_leaf()
         if self.model_name == "Ariya":
             self.fetch_battery_status_ariya()
@@ -859,7 +873,9 @@ class Vehicle:
             raise ValueError(body['errors'])
 
         if not 'data' in body or not 'attributes' in body['data']:
+            # この車はバッテリ情報を返さないので以後問い合わせない
             self.battery_supported = False
+            return
 
         battery_data = body['data']['attributes']
         self.battery_capacity = battery_data.get('batteryCapacity')  # kWh

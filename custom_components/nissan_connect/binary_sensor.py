@@ -92,3 +92,11 @@ class LockStatusEntity(KamereonEntity, BinarySensorEntity):
     @property
     def is_on(self):
         return self.vehicle.lock_status == LockStatus.UNLOCKED
+
+    @property
+    def extra_state_attributes(self):
+        """各ドアとハッチ、ボンネットの開閉状態。"""
+        return {
+            door.value: (status.value if status is not None else None)
+            for door, status in self.vehicle.door_status.items()
+        }
