@@ -795,7 +795,9 @@ class Vehicle:
         return body
 
     def set_hvac_status(self, action: HVACAction, target_temperature: int=21, start: datetime.datetime=None, srp: str=None):
-        if Feature.CLIMATE_ON_OFF not in self.features:
+        # JP の ICE 車は CLIMATE_ON_OFF ではなく REMOTE_ENGINE_START を持つ
+        if (Feature.CLIMATE_ON_OFF not in self.features
+                and Feature.REMOTE_ENGINE_START not in self.features):
             return
 
         if target_temperature < 16 or target_temperature > 26:
