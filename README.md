@@ -83,19 +83,30 @@ This integration exposes the following entities. Please note that entities will 
   - Car Plugged In (EV Only)
   - Car Charging (EV Only)
   - Doors Locked
+  - Fuel Low Warning (ICE cars)
 - Sensors
   - Battery Level
+  - Battery Temperature
+  - Battery Bar Level
+  - Instantaneous Power (EV Only)
   - Charge Time
   - Internal Temperature
   - External Temperature
+  - Next Target Temperature
   - Range (EV Only)
   - Odometer
+  - Mileage
   - Daily Distance
   - Daily Trips
   - Daily Efficiency (EV Only)
   - Monthly Distance
   - Monthly Trips
   - Monthly Efficiency (EV Only)
+  - Eco Score
+  - Fuel Autonomy, Consumption, Economy, Level, Quantity (ICE cars)
+  - Remote Engine Status (JP ICE cars; raw value from the API, meaning not yet fully understood)
+  - Location / Lock Status / Next HVAC Start last-updated timestamps
+  - Phase / Privacy Mode (diagnostic)
 - Climate
 - Device Tracker
 - Buttons

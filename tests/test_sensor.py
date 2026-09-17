@@ -13,6 +13,7 @@ from custom_components.nissan_connect.sensor import (
     StatisticSensor,
     ChargeTimeRequiredSensor,
     TimestampSensor,
+    GenericAttributeSensor,
     async_setup_entry
 )
 
@@ -98,3 +99,11 @@ def test_timestamp_sensor(mock_hass):
     vehicle = mock_hass.data['nissan_connect']['test_account']['vehicles']['test_vehicle']
     coordinator = mock_hass.data['nissan_connect']['test_account']['coordinator_fetch']
     sensor = TimestampSensor(coordinator, vehicle, 'battery_status_last_updated', 'last_updated', 'mdi:clock-time-eleven-outline')
+
+def test_generic_attribute_sensor(mock_hass):
+    vehicle = mock_hass.data['nissan_connect']['test_account']['vehicles']['test_vehicle']
+    vehicle.remote_engine_status = 3
+    coordinator = mock_hass.data['nissan_connect']['test_account']['coordinator_fetch']
+    sensor = GenericAttributeSensor(coordinator, vehicle, 'remote_engine_status', 'remote_engine_status', 'mdi:engine')
+    assert sensor.native_value == 3
+    assert sensor.icon == 'mdi:engine'

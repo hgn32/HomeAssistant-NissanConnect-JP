@@ -7,7 +7,7 @@ from homeassistant.components.sensor import (
     UnitOfTemperature
 )
 from homeassistant.core import callback
-from homeassistant.const import PERCENTAGE, UnitOfLength, UnitOfTime
+from homeassistant.const import PERCENTAGE, UnitOfLength, UnitOfTime, UnitOfPower, UnitOfVolume, EntityCategory
 from homeassistant.components.sensor import SensorStateClass
 from .base import KamereonEntity
 from .kamereon import ChargingSpeed, Feature
@@ -64,6 +64,41 @@ async def async_setup_entry(hass, config, async_add_entities):
                 ]
 
         entities.append(OdometerSensor(coordinator, data[vehicle], imperial_distance))
+
+        if data[vehicle].remote_engine_status is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'remote_engine_status', 'remote_engine_status', 'mdi:engine'))
+        if data[vehicle].battery_temperature is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'battery_temperature', 'battery_temperature', 'mdi:thermometer-alert'))
+        if data[vehicle].battery_bar_level is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'battery_bar_level', 'battery_bar_level', 'mdi:battery-heart-variant', state_class=SensorStateClass.MEASUREMENT))
+        if data[vehicle].instantaneous_power is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'instantaneous_power', 'instantaneous_power', 'mdi:flash', device_class=SensorDeviceClass.POWER, unit=UnitOfPower.KILO_WATT, state_class=SensorStateClass.MEASUREMENT))
+        if data[vehicle].eco_score is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'eco_score', 'eco_score', 'mdi:leaf'))
+        if data[vehicle].fuel_autonomy is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'fuel_autonomy', 'fuel_autonomy', 'mdi:gas-station'))
+        if data[vehicle].fuel_consumption is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'fuel_consumption', 'fuel_consumption', 'mdi:gas-station'))
+        if data[vehicle].fuel_economy is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'fuel_economy', 'fuel_economy', 'mdi:gas-station'))
+        if data[vehicle].fuel_level is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'fuel_level', 'fuel_level', 'mdi:gas-station', state_class=SensorStateClass.MEASUREMENT))
+        if data[vehicle].fuel_quantity is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'fuel_quantity', 'fuel_quantity', 'mdi:gas-station', device_class=SensorDeviceClass.VOLUME, unit=UnitOfVolume.LITERS))
+        if data[vehicle].mileage is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'mileage', 'mileage', 'mdi:counter'))
+        if data[vehicle].next_target_temperature is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'next_target_temperature', 'next_target_temperature', 'mdi:thermometer', device_class=SensorDeviceClass.TEMPERATURE, unit=UnitOfTemperature.CELSIUS))
+        if data[vehicle].location_last_updated is not None:
+            entities.append(TimestampSensor(coordinator, data[vehicle], 'location_last_updated', 'location_last_updated', 'mdi:clock-time-eleven-outline'))
+        if data[vehicle].lock_status_last_updated is not None:
+            entities.append(TimestampSensor(coordinator, data[vehicle], 'lock_status_last_updated', 'lock_status_last_updated', 'mdi:clock-time-eleven-outline'))
+        if data[vehicle].next_hvac_start_date is not None:
+            entities.append(TimestampSensor(coordinator, data[vehicle], 'next_hvac_start_date', 'next_hvac_start_date', 'mdi:clock-time-eleven-outline'))
+        if data[vehicle].phase is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'phase', 'phase', 'mdi:information-outline', entity_category=EntityCategory.DIAGNOSTIC))
+        if data[vehicle].privacy_mode is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'privacy_mode', 'privacy_mode', 'mdi:incognito', entity_category=EntityCategory.DIAGNOSTIC))
 
     async_add_entities(entities, update_before_add=True)
 
@@ -293,6 +328,31 @@ class ChargeTimeRequiredSensor(KamereonEntity, SensorEntity):
     def icon(self):
         """Icon of the sensor."""
         return "mdi:battery-clock"
+
+
+class GenericAttributeSensor(KamereonEntity, SensorEntity):
+    """vehicle の属性をそのまま公開する汎用センサー。単位・意味が未確定の値もひとまず生の数値として見えるようにする。"""
+
+    def __init__(self, coordinator, vehicle, attribute, translation_key, icon,
+                 device_class=None, unit=None, state_class=None, entity_category=None):
+        self._attribute = attribute
+        self._attr_translation_key = translation_key
+        self._icon = icon
+        self._attr_device_class = device_class
+        self._attr_native_unit_of_measurement = unit
+        self._attr_state_class = state_class
+        self._attr_entity_category = entity_category
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def native_value(self):
+        """Return the state."""
+        return getattr(self.vehicle, self._attribute)
+
+    @property
+    def icon(self):
+        """Icon of the sensor."""
+        return self._icon
 
 
 class TimestampSensor(KamereonEntity, SensorEntity):

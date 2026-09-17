@@ -95,6 +95,9 @@
       },
       "warning_power_limitation": {
         "name": "出力制限警告"
+      },
+      "fuel_low_warning": {
+        "name": "燃料残量警告"
       }
     },
     "button": {
@@ -175,6 +178,57 @@
       },
       "monthly_trips": {
         "name": "今月のトリップ数"
+      },
+      "remote_engine_status": {
+        "name": "リモートエンジン状態"
+      },
+      "battery_temperature": {
+        "name": "バッテリー温度"
+      },
+      "battery_bar_level": {
+        "name": "バッテリーバーレベル"
+      },
+      "instantaneous_power": {
+        "name": "瞬間電力"
+      },
+      "eco_score": {
+        "name": "エコスコア"
+      },
+      "fuel_autonomy": {
+        "name": "航続可能距離（燃料）"
+      },
+      "fuel_consumption": {
+        "name": "燃料消費量"
+      },
+      "fuel_economy": {
+        "name": "燃費"
+      },
+      "fuel_level": {
+        "name": "燃料残量"
+      },
+      "fuel_quantity": {
+        "name": "燃料量"
+      },
+      "mileage": {
+        "name": "マイレージ"
+      },
+      "next_target_temperature": {
+        "name": "次回設定温度"
+      },
+      "location_last_updated": {
+        "name": "位置情報 最終更新"
+      },
+      "lock_status_last_updated": {
+        "name": "施錠状態 最終更新"
+      },
+      "next_hvac_start_date": {
+        "name": "次回エアコン開始予定"
+      },
+      "phase": {
+        "name": "フェーズ"
+      },
+      "privacy_mode": {
+        "name": "プライバシーモード"
       }
     }
   },

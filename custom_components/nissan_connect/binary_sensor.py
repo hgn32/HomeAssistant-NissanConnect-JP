@@ -63,6 +63,9 @@ async def async_setup_entry(hass, config, async_add_entities):
         for lamp_key in car.available_health_lamps():
             entities.append(HealthLampEntity(coordinator, car, lamp_key))
 
+        if car.fuel_low_warning is not None:
+            entities.append(FuelLowWarningEntity(coordinator, car))
+
     async_add_entities(entities, update_before_add=True)
 
 
@@ -167,6 +170,23 @@ class DoorsOpenEntity(KamereonEntity, BinarySensorEntity):
             door.value: (status.value if status is not None else None)
             for door, status in self.vehicle.door_status.items()
         }
+
+
+class FuelLowWarningEntity(KamereonEntity, BinarySensorEntity):
+    """燃料残量警告 (cockpit の fuelLowWarning)。"""
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_translation_key = "fuel_low_warning"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def icon(self):
+        """Return the icon."""
+        return 'mdi:gas-station-off' if self.is_on else 'mdi:gas-station'
+
+    @property
+    def is_on(self):
+        """Return True if the binary sensor is on."""
+        return self.vehicle.fuel_low_warning
 
 
 class HealthLampEntity(KamereonEntity, BinarySensorEntity):

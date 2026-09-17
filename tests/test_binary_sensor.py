@@ -7,6 +7,7 @@ from custom_components.nissan_connect.binary_sensor import (
     ChargingStatusEntity,
     PluggedStatusEntity,
     LockStatusEntity,
+    FuelLowWarningEntity,
 )
 
 @pytest.fixture
@@ -20,6 +21,7 @@ def vehicle():
             self.plugged_in_time = None
             self.unplugged_time = None
             self.lock_status = None
+            self.fuel_low_warning = None
 
     return Vehicle()
 
@@ -59,3 +61,13 @@ async def test_lock_status_entity(vehicle, coordinator):
 
     vehicle.lock_status = LockStatus.UNLOCKED
     assert entity.is_on is True
+
+async def test_fuel_low_warning_entity(vehicle, coordinator):
+    entity = FuelLowWarningEntity(coordinator, vehicle)
+    assert entity.is_on is None
+
+    vehicle.fuel_low_warning = True
+    assert entity.is_on is True
+
+    vehicle.fuel_low_warning = False
+    assert entity.is_on is False
