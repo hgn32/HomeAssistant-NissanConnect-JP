@@ -812,6 +812,12 @@ class Vehicle:
             attributes['startDateTime'] = start.isoformat(timespec='seconds')
 
         if self.session.region == 'JP':
+            # JP の「乗る前エアコン」でエンジンを始動させるかどうかは action ではなく
+            # targetCycleTime で指示する (アプリの EngineAction.start が "normalStart"、
+            # startAndKeepLonger が "doubleStart" に対応)。これが無いとエアコン起動のみ
+            # の要求になり、車両が寝ていると始動しない
+            if action == HVACAction.START:
+                attributes['targetCycleTime'] = 'normalStart'
             resp = self._post(
                 '{}nissan/remote-action/v1/cars/{}/hvac-control'.format(self.session.settings['user_base_url'], self.vin),
                 data=json.dumps({
