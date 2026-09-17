@@ -670,21 +670,6 @@ class Vehicle:
         self.lock_status = LockStatus(lock_data.get('lockStatus', LockStatus.LOCKED))
         self.lock_status_last_updated = datetime.datetime.fromisoformat(lock_data['lastUpdateTime'].replace('Z','+00:00'))
 
-    def wake_up_vehicle(self):
-        """車両がディープスリープ中だとリモートコマンドが届かないため、事前に起こす。
-        NissanConnect アプリの WakeUpVehicleUseCase (/actions/wake-up-vehicle) と同等。"""
-        resp = self._post(
-            '{}v1/cars/{}/actions/wake-up-vehicle'.format(self.session.settings['car_adapter_base_url'], self.vin),
-            data=json.dumps({
-                'data': {'type': 'WakeUpVehicle'}
-            }),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
-        body = resp.json()
-        if 'errors' in body:
-            raise ValueError(body['errors'])
-        return body
-
     def refresh_hvac_status(self):
         resp = self._post(
             '{}v1/cars/{}/actions/refresh-hvac-status'.format(self.session.settings['car_adapter_base_url'], self.vin),
@@ -817,12 +802,6 @@ class Vehicle:
 
         if target_temperature < 16 or target_temperature > 26:
             raise ValueError('Temperature must be between 16 & 26 degrees')
-
-        # 車両がディープスリープ中だとコマンドが届かないことがあるため、事前に起こす
-        try:
-            self.wake_up_vehicle()
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Failed to wake up vehicle before hvac-control: %s", err)
 
         attributes = {
             'action': action.value
