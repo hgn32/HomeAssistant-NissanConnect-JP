@@ -95,6 +95,9 @@
       },
       "warning_power_limitation": {
         "name": "Power Limitation Alert"
+      },
+      "fuel_low_warning": {
+        "name": "Fuel Low Warning"
       }
     },
     "button": {
@@ -175,6 +178,57 @@
       },
       "monthly_trips": {
         "name": "Monthly Trips"
+      },
+      "remote_engine_status": {
+        "name": "Remote Engine Status"
+      },
+      "battery_temperature": {
+        "name": "Battery Temperature"
+      },
+      "battery_bar_level": {
+        "name": "Battery Bar Level"
+      },
+      "instantaneous_power": {
+        "name": "Instantaneous Power"
+      },
+      "eco_score": {
+        "name": "Eco Score"
+      },
+      "fuel_autonomy": {
+        "name": "Fuel Autonomy"
+      },
+      "fuel_consumption": {
+        "name": "Fuel Consumption"
+      },
+      "fuel_economy": {
+        "name": "Fuel Economy"
+      },
+      "fuel_level": {
+        "name": "Fuel Level"
+      },
+      "fuel_quantity": {
+        "name": "Fuel Quantity"
+      },
+      "mileage": {
+        "name": "Mileage"
+      },
+      "next_target_temperature": {
+        "name": "Next Target Temperature"
+      },
+      "location_last_updated": {
+        "name": "Location Last Updated"
+      },
+      "lock_status_last_updated": {
+        "name": "Lock Status Last Updated"
+      },
+      "next_hvac_start_date": {
+        "name": "Next HVAC Start"
+      },
+      "phase": {
+        "name": "Phase"
+      },
+      "privacy_mode": {
+        "name": "Privacy Mode"
       }
     }
   },

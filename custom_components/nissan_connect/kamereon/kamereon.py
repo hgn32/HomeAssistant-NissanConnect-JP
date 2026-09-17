@@ -836,6 +836,7 @@ class Vehicle:
                 headers={'Content-Type': 'application/vnd.api+json'}
             )
         body = resp.json()
+        _LOGGER.debug("hvac-control response: status=%s body=%s", resp.status_code, body)
         if 'errors' in body:
             raise ValueError(body['errors'])
         return body
