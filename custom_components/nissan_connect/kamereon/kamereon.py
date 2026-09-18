@@ -14,6 +14,7 @@ from oauthlib.oauth2 import TokenExpiredError
 from requests_oauthlib import OAuth2Session
 from urllib.parse import urlparse, parse_qs
 from .kamereon_const import *
+from .kamereon_jp_const import *
 
 _LOGGER = logging.getLogger(__name__)
 

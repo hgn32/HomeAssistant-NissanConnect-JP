@@ -5,10 +5,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from custom_components.nissan_connect.kamereon.kamereon import Vehicle
-from custom_components.nissan_connect.kamereon.kamereon_const import (
+from custom_components.nissan_connect.kamereon.kamereon_const import Feature, HVACAction
+from custom_components.nissan_connect.kamereon.kamereon_jp_const import (
     EngineCycleTime,
-    Feature,
-    HVACAction,
     RemoteActionStatus,
     RemoteEngineStatus,
 )
