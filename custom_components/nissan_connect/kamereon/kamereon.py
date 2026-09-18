@@ -72,9 +72,11 @@ class Notification:
     def fetch_details(self, language: Language=None):
         if language is None:
             language = self.language
+        # JP の BFF は notifications v1 (アプリと同じ)、EU は v2
+        version = 'v1' if self.session.region == 'JP' else 'v2'
         resp = self._get(
-            '{}v2/notifications/users/{}/vehicles/{}/notifications/{}'.format(
-                self.session.settings['notifications_base_url'],
+            '{}{}/notifications/users/{}/vehicles/{}/notifications/{}'.format(
+                self.session.settings['notifications_base_url'], version,
                 self.user_id, self.vin, self.id
             ),
             params={'langCode': language.value}
@@ -380,10 +382,19 @@ class KamereonSession:
         )
         vehicles = []
         for vehicle_baseinfo in resp.json()['data']['attributes']['vehicles']:
-            vehicle_data = self.oauth.get(
-                '{}nissan/config/v1/cars/{}/details'.format(
-                    self.settings['user_base_url'], vehicle_baseinfo['vin'])
+            # アプリと同じ vehicle-info の details を使う。こちらは JSON:API 形式
+            # ({"data": {"attributes": {...}}}) なので展開が必要
+            details = self.oauth.get(
+                '{}nissan/vehicle-info/v1/cars/{}/details'.format(
+                    self.settings['user_base_url'], vehicle_baseinfo['vin']),
+                headers={'X-Vehicle-Gateway': vehicle_baseinfo['vin'],
+                         'X-VehicleIdType': 'UUID'}
             ).json()
+            if 'errors' in details:
+                raise ValueError(details['errors'])
+            vehicle_data = dict(details.get('data', {}).get('attributes') or {})
+            # details が VIN を返さない場合に備えて token-info の値で補う
+            vehicle_data.setdefault('vin', vehicle_baseinfo['vin'])
             vehicle_data['services'] = vehicle_baseinfo.get('services', [])
             vehicle_data['appConfig'] = self._fetch_app_config(vehicle_baseinfo['vin'])
             vehicle = Vehicle(vehicle_data, self.user_id)
@@ -396,7 +407,14 @@ class KamereonSession:
         try:
             body = self.oauth.get(
                 '{}nissan/config/v1/cars/{}/features'.format(
-                    self.settings['user_base_url'], vin)
+                    self.settings['user_base_url'], vin),
+                headers={'X-Vehicle-Gateway': vin,
+                         'X-VehicleIdType': 'UUID',
+                         'X-App-Id': self.settings.get('app_id', 'jp.co.nissan.nissanconnect.ncx')},
+                params={'app_ver': APP_VERSION,
+                        'os': APP_OS,
+                        'os_ver': APP_OS_VERSION,
+                        'device_info': APP_DEVICE_INFO}
             ).json()
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Could not fetch the app feature map: %s", err)
@@ -509,8 +527,18 @@ class Vehicle:
         self.external_temperature = None
         self.internal_temperature = None
         self.hvac_status = None
-        # JP: hvac-status が返す遠隔エンジン始動の状態 (意味は未解明)
+        # JP: res-state / hvac-status が返す遠隔エンジン始動の状態。
+        # 生の数値と、アプリと同じ意味に落とした文字列の両方を持つ
         self.remote_engine_status = None
+        self.remote_engine_status_text = None
+        self.remote_engine_error_status = None
+        self.engine_cycle_remaining_time = None
+        # JP: 直近に投げた遠隔操作の結果 (action-status-polling)
+        self.last_remote_action = None
+        self.last_remote_action_status = None
+        # JP: タイヤ空気圧
+        self.tyre_pressure = {}
+        self.tyre_pressure_last_updated = None
         self.next_hvac_start_date = None
         self.next_target_temperature = None
         self.hvac_status_last_updated = None
@@ -560,6 +588,11 @@ class Vehicle:
                 if payload_key in self.malfunction_lamps]
 
     def _request(self, method, url, headers=None, params=None, data=None, max_retries=3):
+        # JP のアプリは全リクエストに X-Vehicle-Gateway を付ける
+        if self.session.region == 'JP':
+            headers = dict(headers or {})
+            headers.setdefault('X-Vehicle-Gateway', self.vin)
+
         for attempt in range(max_retries):
             try:
                 if method == 'GET':
@@ -597,13 +630,44 @@ class Vehicle:
         self.refresh_location()
         self.refresh_battery_status()
 
+    def wake_up(self):
+        """JP: アプリが前面に戻るたびに投げている車両の起こし込み。
+
+        アプリは DashboardViewModel.didChangeAppLifecycleState(resumed) で
+        これを呼んでから dashboard の取得を始める。対応していない車両では
+        エラーを返すだけなので、失敗しても後続の取得は止めない。
+        """
+        if self.session.region != 'JP':
+            return
+        try:
+            resp = self._post(
+                '{}v1/cars/{}/actions/wake-up-vehicle'.format(
+                    self.session.settings['car_adapter_base_url'], self.vin),
+                data=json.dumps({'data': {'type': 'WakeUpVehicle'}}),
+                headers={'Content-Type': 'application/vnd.api+json'}
+            )
+            body = resp.json()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("wake-up-vehicle failed: %s", err)
+            return
+        if 'errors' in body:
+            _LOGGER.debug("wake-up-vehicle rejected: %s", body['errors'])
+            return
+        return body
+
     def fetch_all(self):
-        self.fetch_cockpit()
+        # アプリのダッシュボードと同じ順序:
+        #   wake-up -> location -> cockpit -> health -> lock
+        #   -> hvac-status + res-state -> battery
+        self.wake_up()
         self.fetch_location()
-        self.fetch_battery_status()
-        self.fetch_hvac_status()
-        self.fetch_lock_status()
+        self.fetch_cockpit()
         self.fetch_health_status()
+        self.fetch_lock_status()
+        self.fetch_hvac_status()
+        self.fetch_engine_status()
+        self.fetch_tyre_pressure()
+        self.fetch_battery_status()
 
     def refresh_location(self):
         if Feature.MY_CAR_FINDER not in self.features:
@@ -625,10 +689,11 @@ class Vehicle:
         if Feature.MY_CAR_FINDER not in self.features:
             return
         
-        resp = self._get(
-            '{}v1/cars/{}/location'.format(self.session.settings['car_adapter_base_url'], self.vin),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
+        if self.session.region == 'JP':
+            url = '{}nissan/vehicle-info/v1/cars/{}/location'.format(self.session.settings['user_base_url'], self.vin)
+        else:
+            url = '{}v1/cars/{}/location'.format(self.session.settings['car_adapter_base_url'], self.vin)
+        resp = self._get(url, headers={'Content-Type': 'application/vnd.api+json'})
         body = resp.json()
         if 'errors' in body:
             raise ValueError(body['errors'])
@@ -652,10 +717,11 @@ class Vehicle:
     def fetch_lock_status(self):
         if Feature.LOCK_STATUS_CHECK not in self.features:
             return
-        resp = self._get(
-            '{}v1/cars/{}/lock-status'.format(self.session.settings['car_adapter_base_url'], self.vin),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
+        if self.session.region == 'JP':
+            url = '{}nissan/remote-action/v1/cars/{}/lock-status'.format(self.session.settings['user_base_url'], self.vin)
+        else:
+            url = '{}v1/cars/{}/lock-status'.format(self.session.settings['car_adapter_base_url'], self.vin)
+        resp = self._get(url, headers={'Content-Type': 'application/vnd.api+json'})
         body = resp.json()
         if 'errors' in body:
             raise ValueError(body['errors'])
@@ -794,7 +860,8 @@ class Vehicle:
             raise ValueError(body['errors'])
         return body
 
-    def set_hvac_status(self, action: HVACAction, target_temperature: int=21, start: datetime.datetime=None, srp: str=None):
+    def set_hvac_status(self, action: HVACAction, target_temperature: int=21, start: datetime.datetime=None, srp: str=None,
+                        cycle_time: EngineCycleTime=EngineCycleTime.NORMAL, wait: bool=True):
         # JP の ICE 車は CLIMATE_ON_OFF ではなく REMOTE_ENGINE_START を持つ
         if (Feature.CLIMATE_ON_OFF not in self.features
                 and Feature.REMOTE_ENGINE_START not in self.features):
@@ -817,7 +884,10 @@ class Vehicle:
             # startAndKeepLonger が "doubleStart" に対応)。これが無いとエアコン起動のみ
             # の要求になり、車両が寝ていると始動しない
             if action == HVACAction.START:
-                attributes['targetCycleTime'] = 'normalStart'
+                attributes['targetCycleTime'] = cycle_time.value
+                # アプリの toHvacAccessorySettingTurnOn は必ずこのオブジェクトを付ける。
+                # シート/デフロスタは対応車のみで、未指定ならキーごと省略される
+                attributes['hvacAccessorySetting'] = {'hvacFunctionRequest': 1}
             resp = self._post(
                 '{}nissan/remote-action/v1/cars/{}/hvac-control'.format(self.session.settings['user_base_url'], self.vin),
                 data=json.dumps({
@@ -845,9 +915,11 @@ class Vehicle:
         _LOGGER.debug("hvac-control response: status=%s body=%s", resp.status_code, body)
         if 'errors' in body:
             raise ValueError(body['errors'])
+        if wait:
+            self.poll_remote_action(self._action_id(body))
         return body
 
-    def lock_unlock(self, srp: str=None, action: str='lock', group: LockableDoorGroup=None):
+    def lock_unlock(self, srp: str=None, action: str='lock', group: LockableDoorGroup=None, wait: bool=True):
         if Feature.APP_DOOR_LOCKING not in self.features:
             return
         assert action in ('lock', 'unlock')
@@ -882,6 +954,8 @@ class Vehicle:
         body = resp.json()
         if 'errors' in body:
             raise ValueError(body['errors'])
+        if wait:
+            self.poll_remote_action(self._action_id(body))
         return body
 
     def lock(self, srp: str=None, group: LockableDoorGroup=None):
@@ -898,10 +972,11 @@ class Vehicle:
                 and Feature.REMOTE_ENGINE_START not in self.features):
             return
         
-        resp = self._get(
-            '{}v1/cars/{}/hvac-status'.format(self.session.settings['car_adapter_base_url'], self.vin),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
+        if self.session.region == 'JP':
+            url = '{}nissan/remote-action/v1/cars/{}/hvac-status'.format(self.session.settings['user_base_url'], self.vin)
+        else:
+            url = '{}v1/cars/{}/hvac-status'.format(self.session.settings['car_adapter_base_url'], self.vin)
+        resp = self._get(url, headers={'Content-Type': 'application/vnd.api+json'})
         body = resp.json()
         if 'errors' in body:
             raise ValueError(body['errors'])
@@ -912,12 +987,136 @@ class Vehicle:
         if 'hvacStatus' in hvac_data:
             self.hvac_status = hvac_data['hvacStatus'] == "on"
         if 'remoteEngineStatus' in hvac_data:
-            self.remote_engine_status = hvac_data['remoteEngineStatus']
-            _LOGGER.debug("Remote engine status: %s", self.remote_engine_status)
+            self._set_remote_engine_status(hvac_data['remoteEngineStatus'])
         if 'nextHvacStartDate' in hvac_data:
             self.next_hvac_start_date = datetime.datetime.fromisoformat(hvac_data['nextHvacStartDate'].replace('Z','+00:00'))
         if 'lastUpdateTime' in hvac_data:
             self.hvac_status_last_updated = datetime.datetime.fromisoformat(hvac_data['lastUpdateTime'].replace('Z','+00:00'))
+
+    def _set_remote_engine_status(self, raw):
+        """remoteEngineStatus をアプリと同じ意味に落とす。"""
+        self.remote_engine_status = raw
+        status = REMOTE_ENGINE_STATUS_MAP.get(str(raw), RemoteEngineStatus.UNKNOWN)
+        self.remote_engine_status_text = status.value
+        _LOGGER.debug("Remote engine status: %s (%s)", raw, status.value)
+
+    def fetch_engine_status(self):
+        """JP: res-state。アプリはダッシュボードで hvac-status と一緒に叩く。"""
+        if self.session.region != 'JP':
+            return
+        if Feature.REMOTE_ENGINE_START not in self.features:
+            return
+
+        try:
+            resp = self._get(
+                '{}v2/cars/{}/res-state'.format(
+                    self.session.settings['car_adapter_base_url'], self.vin),
+                headers={'Content-Type': 'application/vnd.api+json'}
+            )
+            body = resp.json()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("res-state failed: %s", err)
+            return
+        if 'errors' in body:
+            _LOGGER.warning("res-state: %s", body['errors'])
+            return
+        engine_data = body['data']['attributes']
+        if 'remoteEngineStatus' in engine_data:
+            self._set_remote_engine_status(engine_data['remoteEngineStatus'])
+        if 'remoteEngineErrorStatus' in engine_data:
+            self.remote_engine_error_status = engine_data['remoteEngineErrorStatus']
+        if 'cycleRemainingTime' in engine_data:
+            self.engine_cycle_remaining_time = engine_data['cycleRemainingTime']
+
+    def fetch_tyre_pressure(self):
+        """JP: タイヤ空気圧。"""
+        if self.session.region != 'JP':
+            return
+
+        try:
+            resp = self._get(
+                '{}nissan/vehicle-info/v1/cars/{}/pressure'.format(
+                    self.session.settings['user_base_url'], self.vin),
+                headers={'Content-Type': 'application/vnd.api+json'}
+            )
+            body = resp.json()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("pressure failed: %s", err)
+            return
+        if 'errors' in body:
+            _LOGGER.warning("pressure: %s", body['errors'])
+            return
+        pressure_data = body['data']['attributes']
+        self.tyre_pressure = {
+            key: value for key, value in pressure_data.items()
+            if key != 'lastUpdateTime'
+        }
+        if 'lastUpdateTime' in pressure_data:
+            self.tyre_pressure_last_updated = datetime.datetime.fromisoformat(
+                pressure_data['lastUpdateTime'].replace('Z', '+00:00'))
+
+    def fetch_remote_action_status(self, action_id):
+        """JP: 遠隔操作の結果を一度だけ問い合わせる。"""
+        resp = self._get(
+            '{}alliance/action-status-polling/v1/cars/{}/actions/status'.format(
+                self.session.settings['user_base_url'], self.vin),
+            params={'actionId': action_id},
+            headers={'Content-Type': 'application/vnd.api+json'}
+        )
+        body = resp.json()
+        if 'errors' in body:
+            raise ValueError(body['errors'])
+        attributes = body['data']['attributes']
+        raw = attributes.get('status')
+        try:
+            status = RemoteActionStatus(raw)
+        except ValueError:
+            raise ValueError('Unknown action status: {}'.format(raw))
+        error = attributes.get('error') or {}
+        return status, error.get('code')
+
+    def poll_remote_action(self, action_id,
+                           timeout=REMOTE_ACTION_POLL_TIMEOUT,
+                           interval=REMOTE_ACTION_POLL_INTERVAL):
+        """JP: アプリと同じく POST の interval 秒後から結果を取りに行く。
+
+        成功 (COMPLETED / SYNCHRONIZED) なら status を返す。失敗
+        (REJECTED / CANCELLED) なら ValueError。timeout まで決着しなければ
+        最後に見た status をそのまま返す。
+        """
+        if self.session.region != 'JP' or not action_id:
+            return None
+
+        status = None
+        deadline = time.monotonic() + timeout
+        while True:
+            time.sleep(interval)
+            try:
+                status, error_code = self.fetch_remote_action_status(action_id)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("action status poll failed: %s", err)
+                if time.monotonic() >= deadline:
+                    return status
+                continue
+            _LOGGER.debug("action %s status=%s error=%s", action_id, status.value, error_code)
+            self.last_remote_action = action_id
+            self.last_remote_action_status = status.value
+            if status in REMOTE_ACTION_SUCCESS:
+                return status
+            if status in REMOTE_ACTION_FAILURE:
+                raise ValueError('Remote action {} {} (error code {})'.format(
+                    action_id, status.value, error_code))
+            if time.monotonic() >= deadline:
+                _LOGGER.warning("action %s did not settle within %ss (last status %s)",
+                                action_id, timeout, status.value)
+                return status
+
+    @staticmethod
+    def _action_id(body):
+        """JSON:API のレスポンスから actionId を取り出す。"""
+        if not isinstance(body, dict):
+            return None
+        return (body.get('data') or {}).get('id')
 
     def refresh_battery_status(self):
         resp = self._post(
@@ -942,10 +1141,13 @@ class Vehicle:
     def fetch_battery_status_leaf(self):
         """The battery-status endpoint isn't just for EV's. ICE Nissans publish the range under this!
            There is no obvious feature to qualify this, so we just suck it and see."""
-        resp = self._get(
-            '{}v1/cars/{}/battery-status'.format(self.session.settings['car_adapter_base_url'], self.vin),
-            headers={'Content-Type': 'application/vnd.api+json'}
-        )
+        if self.session.region == 'JP':
+            url = '{}nissan/vehicle-info/v2/cars/{}/battery-status'.format(
+                self.session.settings['user_base_url'], self.vin)
+        else:
+            url = '{}v1/cars/{}/battery-status'.format(
+                self.session.settings['car_adapter_base_url'], self.vin)
+        resp = self._get(url, headers={'Content-Type': 'application/vnd.api+json'})
         body = resp.json()
         if 'errors' in body and Feature.BATTERY_STATUS in self.features:
             raise ValueError(body['errors'])
@@ -1096,8 +1298,9 @@ class Vehicle:
             if end.tzinfo is None:
                 # Assume UTC
                 params['end'] += 'Z'
+        version = 'v1' if self.session.region == 'JP' else 'v2'
         resp = self._get(
-            '{}v2/notifications/users/{}/vehicles/{}'.format(self.session.settings['notifications_base_url'], self.user_id, self.vin),
+            '{}{}/notifications/users/{}/vehicles/{}'.format(self.session.settings['notifications_base_url'], version, self.user_id, self.vin),
             params=params
         )
         body = resp.json()
@@ -1109,8 +1312,9 @@ class Vehicle:
         """Take a list of notifications and set their status remotely
         to the one held locally (read / unread)."""
 
+        version = 'v1' if self.session.region == 'JP' else 'v2'
         resp = self._post(
-            '{}v2/notifications/users/{}/vehicles/{}'.format(self.session.settings['notifications_base_url'], self.user_id, self.vin),
+            '{}{}/notifications/users/{}/vehicles/{}'.format(self.session.settings['notifications_base_url'], version, self.user_id, self.vin),
             data=json.dumps([
                 {'notificationId': m.id, 'status': m.status.value}
                 for m in messages
@@ -1127,10 +1331,14 @@ class Vehicle:
         params = {
             'langCode': language.value,
         }
-        resp = self._get(
-            '{}v1/rules/settings/users/{}/vehicles/{}'.format(self.session.settings['notifications_base_url'], self.user_id, self.vin),
-            params=params
-        )
+        if self.session.region == 'JP':
+            # JP のアプリは iot-notifier 系を使う
+            url = '{}alliance/iot-notifier/v1/settings/users/{}/vehicles/{}'.format(
+                self.session.settings['user_base_url'], self.user_id, self.vin)
+        else:
+            url = '{}v1/rules/settings/users/{}/vehicles/{}'.format(
+                self.session.settings['notifications_base_url'], self.user_id, self.vin)
+        resp = self._get(url, params=params)
         body = resp.json()
         if 'errors' in body:
             raise ValueError(body['errors'])

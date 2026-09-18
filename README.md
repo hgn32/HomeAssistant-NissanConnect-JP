@@ -104,7 +104,12 @@ This integration exposes the following entities. Please note that entities will 
   - Monthly Efficiency (EV Only)
   - Eco Score
   - Fuel Autonomy, Consumption, Economy, Level, Quantity (ICE cars)
-  - Remote Engine Status (JP ICE cars; raw value from the API, meaning not yet fully understood)
+  - Remote Engine Status (JP; raw value) and Remote Engine Status Text
+    (`unavailable` / `remoteStartNotAllowed` / `readyForRemoteStart` /
+    `manuallyStarted` / `remotelyStarted` / `remoteStartNotSupported`)
+  - Remote Engine Error / Engine Cycle Remaining Time (JP, diagnostic)
+  - Last Remote Action Status (JP, diagnostic)
+  - Tyre Pressure, per wheel (JP)
   - Location / Lock Status / Next HVAC Start last-updated timestamps
   - Phase / Privacy Mode (diagnostic)
 - Climate
@@ -115,4 +120,5 @@ This integration exposes the following entities. Please note that entities will 
   - Honk Horn
   - Start Charge
   - Lock Doors (JP only; the app itself has no remote unlock action)
-  - Start Engine (JP ICE cars with the `REMOTE_ENGINE_START` feature; no temperature setting, just a start trigger like the app's own button)
+  - Start Engine (JP cars with the `REMOTE_ENGINE_START` feature; no temperature setting, just a start trigger like the app's own button)
+  - Start Engine (20 min) (JP; the app's `doubleStart` / two-cycle option)

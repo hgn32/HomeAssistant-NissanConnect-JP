@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from homeassistant.helpers import entity_registry as er
 from custom_components.nissan_connect.const import DOMAIN, DATA_VEHICLES, DATA_COORDINATOR_POLL, DATA_COORDINATOR_FETCH, DATA_COORDINATOR_STATISTICS
-from custom_components.nissan_connect.kamereon.kamereon_const import Feature, HVACAction
+from custom_components.nissan_connect.kamereon.kamereon_const import Feature, HVACAction, EngineCycleTime
 
 from custom_components.nissan_connect.button import (
     async_setup_entry,
@@ -11,6 +11,7 @@ from custom_components.nissan_connect.button import (
     ChargeControlButtons,
     DoorLockButton,
     EngineStartButton,
+    EngineStartLongButton,
 )
 
 
@@ -158,6 +159,7 @@ async def test_async_setup_entry_with_engine_start(mock_config, mock_async_add_e
     await async_setup_entry(hass, mock_config, mock_async_add_entities)
     entities = mock_async_add_entities.call_args[0][0]
     assert any(isinstance(e, EngineStartButton) for e in entities)
+    assert any(isinstance(e, EngineStartLongButton) for e in entities)
 
 
 def test_engine_start_button():
@@ -166,4 +168,15 @@ def test_engine_start_button():
     button = EngineStartButton(coordinator, vehicle)
 
     button.press()
-    vehicle.set_hvac_status.assert_called_once_with(HVACAction.START)
+    vehicle.set_hvac_status.assert_called_once_with(
+        HVACAction.START, cycle_time=EngineCycleTime.NORMAL)
+
+
+def test_engine_start_long_button():
+    coordinator = MagicMock()
+    vehicle = MagicMock()
+    button = EngineStartLongButton(coordinator, vehicle)
+
+    button.press()
+    vehicle.set_hvac_status.assert_called_once_with(
+        HVACAction.START, cycle_time=EngineCycleTime.DOUBLE)

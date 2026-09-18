@@ -118,6 +118,9 @@
       },
       "engine_start": {
         "name": "エンジン始動"
+      },
+      "engine_start_long": {
+        "name": "遠隔エンジン始動 (20分)"
       }
     },
     "climate": {
@@ -229,6 +232,21 @@
       },
       "privacy_mode": {
         "name": "プライバシーモード"
+      },
+      "remote_engine_status_text": {
+        "name": "遠隔エンジン状態"
+      },
+      "remote_engine_error_status": {
+        "name": "遠隔エンジンエラー"
+      },
+      "engine_cycle_remaining_time": {
+        "name": "エンジン残り時間"
+      },
+      "last_remote_action_status": {
+        "name": "直近の遠隔操作結果"
+      },
+      "tyre_pressure": {
+        "name": "タイヤ空気圧 {tyre}"
       }
     }
   },

@@ -5,7 +5,7 @@ import asyncio
 from homeassistant.components.button import ButtonEntity
 
 from .base import KamereonEntity
-from .kamereon import ChargingStatus, PluggedStatus, Feature, HVACAction
+from .kamereon import ChargingStatus, PluggedStatus, Feature, HVACAction, EngineCycleTime
 from .const import DOMAIN, DATA_VEHICLES, DATA_COORDINATOR_POLL, DATA_COORDINATOR_FETCH, DATA_COORDINATOR_STATISTICS
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ async def async_setup_entry(hass, config, async_add_entities):
         # JP の ICE 車は温度指定のない単純なリモートエンジンスタートのみ持つ
         if Feature.REMOTE_ENGINE_START in data[vehicle].features:
             entities.append(EngineStartButton(coordinator, data[vehicle]))
+            entities.append(EngineStartLongButton(coordinator, data[vehicle]))
 
     async_add_entities(entities, update_before_add=True)
 
@@ -111,5 +112,21 @@ class EngineStartButton(KamereonEntity, ButtonEntity):
         return 'mdi:engine-outline'
 
     def press(self):
-        self.vehicle.set_hvac_status(HVACAction.START)
+        self.vehicle.set_hvac_status(HVACAction.START, cycle_time=EngineCycleTime.NORMAL)
+
+
+class EngineStartLongButton(KamereonEntity, ButtonEntity):
+    """アプリの「長め (2サイクル / 20分)」に相当する遠隔エンジン始動。"""
+
+    _attr_translation_key = "engine_start_long"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:engine-outline'
+
+    def press(self):
+        self.vehicle.set_hvac_status(HVACAction.START, cycle_time=EngineCycleTime.DOUBLE)
 

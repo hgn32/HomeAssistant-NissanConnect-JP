@@ -7,7 +7,7 @@ from homeassistant.components.sensor import (
     UnitOfTemperature
 )
 from homeassistant.core import callback
-from homeassistant.const import PERCENTAGE, UnitOfLength, UnitOfTime, UnitOfPower, UnitOfVolume, EntityCategory
+from homeassistant.const import PERCENTAGE, UnitOfLength, UnitOfTime, UnitOfPower, UnitOfPressure, UnitOfVolume, EntityCategory
 from homeassistant.components.sensor import SensorStateClass
 from .base import KamereonEntity
 from .kamereon import ChargingSpeed, Feature
@@ -67,6 +67,16 @@ async def async_setup_entry(hass, config, async_add_entities):
 
         if data[vehicle].remote_engine_status is not None:
             entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'remote_engine_status', 'remote_engine_status', 'mdi:engine'))
+        if data[vehicle].remote_engine_status_text is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'remote_engine_status_text', 'remote_engine_status_text', 'mdi:engine-outline'))
+        if data[vehicle].remote_engine_error_status is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'remote_engine_error_status', 'remote_engine_error_status', 'mdi:engine-off-outline', entity_category=EntityCategory.DIAGNOSTIC))
+        if data[vehicle].engine_cycle_remaining_time is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'engine_cycle_remaining_time', 'engine_cycle_remaining_time', 'mdi:timer-outline', state_class=SensorStateClass.MEASUREMENT))
+        if data[vehicle].last_remote_action_status is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'last_remote_action_status', 'last_remote_action_status', 'mdi:cellphone-check', entity_category=EntityCategory.DIAGNOSTIC))
+        for tyre in sorted(data[vehicle].tyre_pressure):
+            entities.append(TyrePressureSensor(coordinator, data[vehicle], tyre))
         if data[vehicle].battery_temperature is not None:
             entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'battery_temperature', 'battery_temperature', 'mdi:thermometer-alert'))
         if data[vehicle].battery_bar_level is not None:
@@ -353,6 +363,29 @@ class GenericAttributeSensor(KamereonEntity, SensorEntity):
     def icon(self):
         """Icon of the sensor."""
         return self._icon
+
+
+class TyrePressureSensor(KamereonEntity, SensorEntity):
+    """JP: /nissan/vehicle-info/v1/cars/{vin}/pressure が返す各輪の空気圧。"""
+
+    _attr_device_class = SensorDeviceClass.PRESSURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfPressure.KPA
+    _attr_icon = "mdi:car-tire-alert"
+
+    def __init__(self, coordinator, vehicle, tyre):
+        self._tyre = tyre
+        self._attr_translation_key = 'tyre_pressure'
+        self._attr_translation_placeholders = {'tyre': tyre}
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def unique_id(self):
+        return "{}-tyre-pressure-{}".format(super().unique_id, self._tyre)
+
+    @property
+    def native_value(self):
+        return self.vehicle.tyre_pressure.get(self._tyre)
 
 
 class TimestampSensor(KamereonEntity, SensorEntity):
