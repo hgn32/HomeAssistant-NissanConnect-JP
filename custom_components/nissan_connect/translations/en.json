@@ -117,10 +117,10 @@
         "name": "Lock Doors"
       },
       "engine_start": {
-        "name": "Start Engine"
+        "name": "Start engine (normal)"
       },
       "engine_start_long": {
-        "name": "Remote engine start (20 min)"
+        "name": "Start engine (20 min)"
       }
     },
     "climate": {
@@ -183,7 +183,7 @@
         "name": "Monthly Trips"
       },
       "remote_engine_status": {
-        "name": "Remote Engine Status"
+        "name": "Remote engine status (raw)"
       },
       "battery_temperature": {
         "name": "Battery Temperature"
@@ -234,7 +234,7 @@
         "name": "Privacy Mode"
       },
       "remote_engine_status_text": {
-        "name": "Remote engine status"
+        "name": "Remote engine state"
       },
       "remote_engine_error_status": {
         "name": "Remote engine error"
@@ -247,6 +247,9 @@
       },
       "tyre_pressure": {
         "name": "Tyre pressure {tyre}"
+      },
+      "tyre_status": {
+        "name": "Tyre status {tyre}"
       }
     }
   },

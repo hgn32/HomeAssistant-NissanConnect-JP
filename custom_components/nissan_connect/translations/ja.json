@@ -117,10 +117,10 @@
         "name": "ドア施錠"
       },
       "engine_start": {
-        "name": "エンジン始動"
+        "name": "エンジン始動 (通常)"
       },
       "engine_start_long": {
-        "name": "遠隔エンジン始動 (20分)"
+        "name": "エンジン始動 (20分)"
       }
     },
     "climate": {
@@ -183,7 +183,7 @@
         "name": "今月のトリップ数"
       },
       "remote_engine_status": {
-        "name": "リモートエンジン状態"
+        "name": "リモートエンジン状態 (生値)"
       },
       "battery_temperature": {
         "name": "バッテリー温度"
@@ -247,6 +247,9 @@
       },
       "tyre_pressure": {
         "name": "タイヤ空気圧 {tyre}"
+      },
+      "tyre_status": {
+        "name": "タイヤ状態 {tyre}"
       }
     }
   },

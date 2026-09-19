@@ -75,8 +75,12 @@ async def async_setup_entry(hass, config, async_add_entities):
             entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'engine_cycle_remaining_time', 'engine_cycle_remaining_time', 'mdi:timer-outline', state_class=SensorStateClass.MEASUREMENT))
         if data[vehicle].last_remote_action_status is not None:
             entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'last_remote_action_status', 'last_remote_action_status', 'mdi:cellphone-check', entity_category=EntityCategory.DIAGNOSTIC))
-        for tyre in sorted(data[vehicle].tyre_pressure):
-            entities.append(TyrePressureSensor(coordinator, data[vehicle], tyre))
+        for key in sorted(data[vehicle].tyre_pressure):
+            # pressure レスポンスは輪ごとに <wheel>Pressure と <wheel>Status を返す
+            if key.lower().endswith('status'):
+                entities.append(TyreStatusSensor(coordinator, data[vehicle], key))
+            else:
+                entities.append(TyrePressureSensor(coordinator, data[vehicle], key))
         if data[vehicle].battery_temperature is not None:
             entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'battery_temperature', 'battery_temperature', 'mdi:thermometer-alert'))
         if data[vehicle].battery_bar_level is not None:
@@ -373,19 +377,40 @@ class TyrePressureSensor(KamereonEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfPressure.KPA
     _attr_icon = "mdi:car-tire-alert"
 
-    def __init__(self, coordinator, vehicle, tyre):
-        self._tyre = tyre
+    def __init__(self, coordinator, vehicle, key):
+        self._key = key
         self._attr_translation_key = 'tyre_pressure'
-        self._attr_translation_placeholders = {'tyre': tyre}
+        self._attr_translation_placeholders = {'tyre': key}
         KamereonEntity.__init__(self, coordinator, vehicle)
 
     @property
     def unique_id(self):
-        return "{}-tyre-pressure-{}".format(super().unique_id, self._tyre)
+        return "{}-tyre-pressure-{}".format(super().unique_id, self._key)
 
     @property
     def native_value(self):
-        return self.vehicle.tyre_pressure.get(self._tyre)
+        return self.vehicle.tyre_pressure.get(self._key)
+
+
+class TyreStatusSensor(KamereonEntity, SensorEntity):
+    """JP: 同じ pressure レスポンスの輪ごとの状態。圧力値ではないので単位は付けない。"""
+
+    _attr_icon = "mdi:car-tire-alert"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, vehicle, key):
+        self._key = key
+        self._attr_translation_key = 'tyre_status'
+        self._attr_translation_placeholders = {'tyre': key}
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def unique_id(self):
+        return "{}-tyre-status-{}".format(super().unique_id, self._key)
+
+    @property
+    def native_value(self):
+        return self.vehicle.tyre_pressure.get(self._key)
 
 
 class TimestampSensor(KamereonEntity, SensorEntity):

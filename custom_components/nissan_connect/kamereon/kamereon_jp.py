@@ -43,7 +43,7 @@ class JPSessionMixin:
             vehicle_data = self._fetch_vehicle_details_jp(vehicle_baseinfo)
             vehicle_data.setdefault('vin', vehicle_baseinfo['vin'])
             vehicle_data['services'] = vehicle_baseinfo.get('services', [])
-            vehicle_data['appConfig'] = self._fetch_app_config(vehicle_baseinfo['vin'])
+            vehicle_data['appConfig'] = self._fetch_app_config(vehicle_baseinfo)
             vehicle = Vehicle(vehicle_data, self.user_id)
             vehicles.append(vehicle)
             _registry[VEHICLES][vehicle.vin] = vehicle
@@ -99,27 +99,47 @@ class JPSessionMixin:
 
         raise ValueError(' | '.join(problems))
 
-    def _fetch_app_config(self, vin):
-        """アプリ自身の機能可用性マップ。取れなければ空を返す。"""
-        try:
-            body = self.oauth.get(
-                '{}nissan/config/v1/cars/{}/features'.format(
-                    self.settings['user_base_url'], vin),
-                headers={'X-Vehicle-Gateway': vin,
-                         'X-VehicleIdType': 'UUID',
-                         'X-App-Id': self.settings.get('app_id', 'jp.co.nissan.nissanconnect.ncx')},
-                params={'app_ver': APP_VERSION,
-                        'os': APP_OS,
-                        'os_ver': APP_OS_VERSION,
-                        'device_info': APP_DEVICE_INFO}
-            ).json()
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Could not fetch the app feature map: %s", err)
-            return {}
-        if 'errors' in body:
-            _LOGGER.warning("Could not fetch the app feature map: %s", body['errors'])
-            return {}
-        return body.get('data', {}).get('attributes', {}) or {}
+    def _fetch_app_config(self, vehicle_baseinfo):
+        """アプリ自身の機能可用性マップ。取れなければ空を返す。
+
+        details と同じく、アプリは UUID をパスに渡す。VIN だと BFF が
+        0101 (The token is invalid or missing.) を返す。
+        """
+        vin = vehicle_baseinfo['vin']
+        uuid = vehicle_baseinfo.get('uuid')
+        app_id = self.settings.get('app_id', 'jp.co.nissan.nissanconnect.ncx')
+        params = {'app_ver': APP_VERSION,
+                  'os': APP_OS,
+                  'os_ver': APP_OS_VERSION,
+                  'device_info': APP_DEVICE_INFO}
+
+        attempts = []
+        if uuid:
+            attempts.append(('uuid', uuid, {'X-Vehicle-Gateway': vin,
+                                            'X-VehicleIdType': 'UUID',
+                                            'X-App-Id': app_id}))
+        attempts.append(('vin', vin, {'X-Vehicle-Gateway': vin,
+                                      'X-App-Id': app_id}))
+
+        problems = []
+        for label, car_id, headers in attempts:
+            try:
+                body = self.oauth.get(
+                    '{}nissan/config/v1/cars/{}/features'.format(
+                        self.settings['user_base_url'], car_id),
+                    headers=headers, params=params
+                ).json()
+            except Exception as err:  # noqa: BLE001
+                problems.append('{}: {}'.format(label, err))
+                continue
+            if 'errors' in body:
+                problems.append('{}: {}'.format(label, body['errors']))
+                continue
+            _LOGGER.debug("App feature map came from %s", label)
+            return body.get('data', {}).get('attributes', {}) or {}
+
+        _LOGGER.warning("Could not fetch the app feature map: %s", ' | '.join(problems))
+        return {}
 
 
 class JPVehicleMixin:
@@ -178,6 +198,7 @@ class JPVehicleMixin:
             _LOGGER.warning("res-state: %s", body['errors'])
             return
         engine_data = body['data']['attributes']
+        _LOGGER.debug("res-state attributes: %s", engine_data)
         if 'remoteEngineStatus' in engine_data:
             self._set_remote_engine_status(engine_data['remoteEngineStatus'])
         if 'remoteEngineErrorStatus' in engine_data:
@@ -204,6 +225,7 @@ class JPVehicleMixin:
             _LOGGER.warning("pressure: %s", body['errors'])
             return
         pressure_data = body['data']['attributes']
+        _LOGGER.debug("pressure attributes: %s", pressure_data)
         self.tyre_pressure = {
             key: value for key, value in pressure_data.items()
             if key != 'lastUpdateTime'
