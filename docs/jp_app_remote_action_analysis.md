@@ -260,6 +260,20 @@ Authorization: Bearer ***   X-Vehicle-Gateway: AVN   Content-Type: application/v
 | `token_info` | `{BFF}/nissan/account/v1/token-info` | アクセストークンが何者として扱われているか |
 | `action_status_all` | `{BFF}/alliance/action-status-polling/v1/cars/{vin}/actions/status`（actionId なし） | アプリ発の操作記録が返るなら `clientId` を突き合わせる |
 
+結果（2026-09-19 22:58 JST）:
+
+| キー | 返り |
+|---|---|
+| `token_info` | `{"ropId":"aD-36397","vehicles":[{"vin":"***","uuid":"***","role":"OWNER","services":[…],"gateway":"AVN","canGeneration":"C1A"}],"services":null}` |
+| `action_status_all` | `0399 unmapped external system error.`（actionId 無しでは一覧は返らない） |
+
+- token-info に `clientId` に相当するものは無い。`clientId: "test"` は BFF / Kamereon 側で
+  付けている値で、こちらからは見えない。**この線は追えない。**
+- 操作記録の一覧も取れないので、アプリ発の操作との突き合わせもできない。
+- 同時刻の `remoteEngineStatus` は `6`（readyForRemoteStart）。
+  recorder 上、14:27 JST 以降ずっと 6 のままで、22:27 の失敗時も 6 だったとみられる。
+  つまり「連続リモート始動の制限で車が拒否した」説は、この値からは裏づけられない。
+
 ### 3.5 認証経路（アプリ側の事実のみ）
 
 ```
