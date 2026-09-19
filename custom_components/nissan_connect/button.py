@@ -136,4 +136,3 @@ class EngineStartLongButton(KamereonEntity, ButtonEntity):
 
     def press(self):
         self.vehicle.set_hvac_status(HVACAction.START, cycle_time=EngineCycleTime.DOUBLE)
-
