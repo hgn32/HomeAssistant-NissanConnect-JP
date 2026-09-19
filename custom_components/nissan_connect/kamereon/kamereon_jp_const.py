@@ -165,7 +165,7 @@ PROBE_ATTR_MAX = 15000
 # contract が氏名・電話番号・会員IDを返してくるのを実機で確認済み。
 PROBE_REDACT_KEYS = frozenset({
     'userName', 'userName1', 'userName2', 'phoneNum', 'phoneNumber', 'tel',
-    'ncId', 'nuId', 'mailAddress', 'email', 'address', 'zipCode',
+    'ncId', 'nuId', 'ropId', 'mailAddress', 'email', 'address', 'zipCode',
     'vin', 'uuid', 'registrationNumber',
 })
 PROBE_REDACTED = '***'

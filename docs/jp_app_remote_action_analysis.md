@@ -264,7 +264,7 @@ Authorization: Bearer ***   X-Vehicle-Gateway: AVN   Content-Type: application/v
 
 | キー | 返り |
 |---|---|
-| `token_info` | `{"ropId":"aD-36397","vehicles":[{"vin":"***","uuid":"***","role":"OWNER","services":[…],"gateway":"AVN","canGeneration":"C1A"}],"services":null}` |
+| `token_info` | `{"ropId":"***","vehicles":[{"vin":"***","uuid":"***","role":"OWNER","services":[…],"gateway":"AVN","canGeneration":"C1A"}],"services":null}` |
 | `action_status_all` | `0399 unmapped external system error.`（actionId 無しでは一覧は返らない） |
 
 - token-info に `clientId` に相当するものは無い。`clientId: "test"` は BFF / Kamereon 側で
