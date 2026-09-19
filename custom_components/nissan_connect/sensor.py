@@ -75,12 +75,17 @@ async def async_setup_entry(hass, config, async_add_entities):
             entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'engine_cycle_remaining_time', 'engine_cycle_remaining_time', 'mdi:timer-outline', state_class=SensorStateClass.MEASUREMENT))
         if data[vehicle].last_remote_action_status is not None:
             entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'last_remote_action_status', 'last_remote_action_status', 'mdi:cellphone-check', entity_category=EntityCategory.DIAGNOSTIC))
-        for key in sorted(data[vehicle].tyre_pressure):
-            # pressure レスポンスは輪ごとに <wheel>Pressure と <wheel>Status を返す
-            if key.lower().endswith('status'):
-                entities.append(TyreStatusSensor(coordinator, data[vehicle], key))
-            else:
-                entities.append(TyrePressureSensor(coordinator, data[vehicle], key))
+        # この車が TPMS の値を返さない場合は全輪 0 になる。
+        # 0 だけのセンサーを並べても意味がないので作らない
+        if any(data[vehicle].tyre_pressure.values()):
+            for key in sorted(data[vehicle].tyre_pressure):
+                # pressure レスポンスは輪ごとに <wheel>Pressure と <wheel>Status を返す
+                if key.lower().endswith('status'):
+                    entities.append(TyreStatusSensor(coordinator, data[vehicle], key))
+                else:
+                    entities.append(TyrePressureSensor(coordinator, data[vehicle], key))
+        for key in sorted(getattr(data[vehicle], 'probe_data', {})):
+            entities.append(ProbeSensor(coordinator, data[vehicle], key))
         if data[vehicle].battery_temperature is not None:
             entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'battery_temperature', 'battery_temperature', 'mdi:thermometer-alert'))
         if data[vehicle].battery_bar_level is not None:
@@ -411,6 +416,35 @@ class TyreStatusSensor(KamereonEntity, SensorEntity):
     @property
     def native_value(self):
         return self.vehicle.tyre_pressure.get(self._key)
+
+
+class ProbeSensor(KamereonEntity, SensorEntity):
+    """JP: まだレスポンスを確認していないエンドポイントの生の中身。
+
+    state には payload を JSON にして 250 文字まで、属性には全体を入れる。
+    中身が分かったものから個別のセンサーに置き換える。
+    """
+
+    _attr_icon = "mdi:help-network-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, vehicle, key):
+        self._key = key
+        self._attr_translation_key = 'probe'
+        self._attr_translation_placeholders = {'probe': key}
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def unique_id(self):
+        return "{}-probe-{}".format(super().unique_id, self._key)
+
+    @property
+    def native_value(self):
+        return self.vehicle.probe_summary(self.vehicle.probe_data.get(self._key))
+
+    @property
+    def extra_state_attributes(self):
+        return self.vehicle.probe_data.get(self._key) or {}
 
 
 class TimestampSensor(KamereonEntity, SensorEntity):

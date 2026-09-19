@@ -11,6 +11,8 @@ import time
 from .kamereon_const import Feature, VEHICLES
 from .kamereon_jp_const import (
     APP_DEVICE_INFO,
+    PROBE_ENDPOINTS,
+    PROBE_STATE_MAX,
     APP_OS,
     APP_OS_VERSION,
     APP_VERSION,
@@ -45,6 +47,10 @@ class JPSessionMixin:
             vehicle_data['services'] = vehicle_baseinfo.get('services', [])
             vehicle_data['appConfig'] = self._fetch_app_config(vehicle_baseinfo)
             vehicle = Vehicle(vehicle_data, self.user_id)
+            # details / features は UUID でしか通らない。token-info の値を持たせておく
+            vehicle.uuid = vehicle_baseinfo.get('uuid')
+            vehicle.gateway = vehicle_baseinfo.get('gateway')
+            vehicle.probe_data = {}
             vehicles.append(vehicle)
             _registry[VEHICLES][vehicle.vin] = vehicle
         return vehicles
@@ -169,6 +175,89 @@ class JPVehicleMixin:
             _LOGGER.debug("wake-up-vehicle rejected: %s", body['errors'])
             return
         return body
+
+    def fetch_jp_extras(self):
+        """fetch_all から呼ばれる JP 専用の取得のまとめ。
+
+        JP 側に取得を足すときはここに追加する (kamereon.py は触らない)。
+        """
+        if self.session.region != 'JP':
+            return
+        self.fetch_engine_status()
+        self.fetch_tyre_pressure()
+        self.fetch_probes()
+
+    def fetch_probes(self):
+        """未確認エンドポイントを読み取って中身をそのまま持っておく。
+
+        アプリにはあるがレスポンスを実機で見ていないものを、まとめて GET する。
+        毎サイクル叩くと無駄なので、値を持っていない最初の 1 回だけ実行する
+        (統合をリロードすればやり直す)。
+        """
+        if self.session.region != 'JP':
+            return
+        if getattr(self, 'probe_data', None):
+            return
+        self.probe_data = {}
+
+        bases = {
+            'user': self.session.settings['user_base_url'],
+            'car': self.session.settings['car_adapter_base_url'],
+            'notif': self.session.settings['notifications_base_url'],
+        }
+        ids = {'vin': self.vin,
+               'uuid': getattr(self, 'uuid', None) or self.vin,
+               'user': self.user_id}
+
+        for key, base, template in PROBE_ENDPOINTS:
+            url = bases[base] + template.format(**ids)
+            result = self._probe(key, url)
+            # VIN で 0101 が返るものは details / features と同じく UUID を試す
+            if (result.get('error') == '0101'
+                    and ids['uuid'] != self.vin and '{vin}' in template):
+                retry_url = bases[base] + template.format(
+                    **dict(ids, vin=ids['uuid']))
+                retried = self._probe(key, retry_url, id_type='UUID')
+                if 'error' not in retried:
+                    result = retried
+            self.probe_data[key] = result
+
+    def _probe(self, key, url, id_type=None):
+        """1 エンドポイントを GET して、結果を辞書で返す。例外は出さない。"""
+        headers = {'Content-Type': 'application/vnd.api+json'}
+        if id_type:
+            headers['X-VehicleIdType'] = id_type
+        try:
+            resp = self._get(url, headers=headers)
+            body = resp.json()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("probe %s failed: %s", key, err)
+            return {'error': 'request', 'detail': str(err)}
+        if 'errors' in body:
+            first = (body['errors'] or [{}])[0]
+            _LOGGER.debug("probe %s rejected: %s", key, body['errors'])
+            return {'error': first.get('code', 'unknown'),
+                    'detail': first.get('detail', '')}
+        payload = body.get('data', body)
+        if isinstance(payload, dict) and 'attributes' in payload:
+            payload = payload['attributes']
+        _LOGGER.debug("probe %s: %s", key, payload)
+        return {'payload': payload}
+
+    @staticmethod
+    def probe_summary(result):
+        """(未確認) センサーの state にする短い文字列。"""
+        if not result:
+            return None
+        if 'error' in result:
+            return 'error {}'.format(result['error'])
+        try:
+            text = json.dumps(result.get('payload'), ensure_ascii=False)
+        except Exception:  # noqa: BLE001
+            text = str(result.get('payload'))
+        if len(text) > PROBE_STATE_MAX:
+            text = text[:PROBE_STATE_MAX - 1] + '…'
+        return text
 
     def _set_remote_engine_status(self, raw):
         """remoteEngineStatus をアプリと同じ意味に落とす。"""

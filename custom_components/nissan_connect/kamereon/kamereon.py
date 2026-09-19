@@ -492,6 +492,11 @@ class Vehicle(JPVehicleMixin):
         # JP: タイヤ空気圧
         self.tyre_pressure = {}
         self.tyre_pressure_last_updated = None
+        # JP: token-info が返す識別子 (details / features は UUID でしか通らない)
+        self.uuid = data.get('uuid')
+        self.gateway = data.get('gateway')
+        # JP: 未確認エンドポイントの生レスポンス
+        self.probe_data = {}
         self.next_hvac_start_date = None
         self.next_target_temperature = None
         self.hvac_status_last_updated = None
@@ -593,8 +598,7 @@ class Vehicle(JPVehicleMixin):
         self.fetch_health_status()
         self.fetch_lock_status()
         self.fetch_hvac_status()
-        self.fetch_engine_status()
-        self.fetch_tyre_pressure()
+        self.fetch_jp_extras()
         self.fetch_battery_status()
 
     def refresh_location(self):

@@ -176,3 +176,47 @@ def test_wake_up_swallows_errors():
     assert url.endswith('v1/cars/VIN0000000000000/actions/wake-up-vehicle')
     assert json.loads(vehicle._post.call_args[1]['data']) == {
         'data': {'type': 'WakeUpVehicle'}}
+
+
+def test_fetch_probes_collects_payloads_and_errors(monkeypatch):
+    from custom_components.nissan_connect.kamereon import kamereon_jp_const as jpc
+    monkeypatch.setattr(jpc, 'PROBE_ENDPOINTS', (
+        ('good', 'user', 'nissan/account/v1/cars/{vin}/contract'),
+        ('bad', 'car', 'v1/cars/{vin}/settings/gfc-restrictions'),
+    ), raising=False)
+    from custom_components.nissan_connect.kamereon import kamereon_jp
+    monkeypatch.setattr(kamereon_jp, 'PROBE_ENDPOINTS', jpc.PROBE_ENDPOINTS)
+
+    vehicle = _make_vehicle()
+    vehicle.session.settings['notifications_base_url'] = 'https://bff/nc-app-bff/alliance/notifications/'
+    vehicle.user_id = 'user'
+    vehicle.uuid = 'UUID-1'
+    vehicle.probe_data = {}
+
+    def fake_get(url, headers=None, params=None):
+        if url.endswith('/contract'):
+            return _response({'data': {'attributes': {'expiry': '2030-01-01'}}})
+        return _response({'errors': [{'code': '0145', 'detail': 'nope'}]})
+
+    vehicle._get = MagicMock(side_effect=fake_get)
+    vehicle.fetch_probes()
+
+    assert vehicle.probe_data['good'] == {'payload': {'expiry': '2030-01-01'}}
+    assert vehicle.probe_data['bad']['error'] == '0145'
+
+
+def test_fetch_probes_runs_once(monkeypatch):
+    vehicle = _make_vehicle()
+    vehicle.probe_data = {'already': {'payload': 1}}
+    vehicle._get = MagicMock()
+    vehicle.fetch_probes()
+    vehicle._get.assert_not_called()
+
+
+def test_probe_summary_truncates():
+    vehicle = _make_vehicle()
+    assert vehicle.probe_summary(None) is None
+    assert vehicle.probe_summary({'error': '0101'}) == 'error 0101'
+    long = {'payload': {'x': 'a' * 500}}
+    summary = vehicle.probe_summary(long)
+    assert len(summary) <= 250 and summary.endswith('…')

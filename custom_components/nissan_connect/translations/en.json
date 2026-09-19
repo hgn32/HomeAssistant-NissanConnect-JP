@@ -250,6 +250,9 @@
       },
       "tyre_status": {
         "name": "Tyre status {tyre}"
+      },
+      "probe": {
+        "name": "(unverified) {probe}"
       }
     }
   },

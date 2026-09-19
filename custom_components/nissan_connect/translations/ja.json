@@ -250,6 +250,9 @@
       },
       "tyre_status": {
         "name": "タイヤ状態 {tyre}"
+      },
+      "probe": {
+        "name": "(未確認) {probe}"
       }
     }
   },

@@ -77,3 +77,52 @@ REMOTE_ACTION_FAILURE = (RemoteActionStatus.REJECTED, RemoteActionStatus.CANCELL
 # こちらで決め打ちする
 REMOTE_ACTION_POLL_INTERVAL = 1
 REMOTE_ACTION_POLL_TIMEOUT = 60
+
+
+# アプリには存在するが、実機のレスポンスをまだ確認していないエンドポイント。
+# 読み取りだけ行い、中身をそのまま「(未確認)」センサーとして出す。
+# 確認が取れたものから個別のセンサーに昇格させる。
+#   (キー, ベースURL種別, パステンプレート)
+#   ベースURL種別: 'user' = user_base_url, 'car' = car_adapter_base_url,
+#                  'notif' = notifications_base_url
+PROBE_ENDPOINTS = (
+    # --- 通知・アラート設定 ---
+    ('area_restrictions', 'user',
+     'nissan/notification-setting/v1/cars/{vin}/area-restrictions'),
+    ('speed_restrictions', 'user',
+     'nissan/notification-setting/v1/cars/{vin}/speed-restrictions'),
+    ('curfew_restrictions', 'user',
+     'nissan/notification-setting/v2/cars/{vin}/curfew-restrictions'),
+    ('notification_activate_status', 'user',
+     'nissan/notification-setting/v1/users/{user}/cars/{vin}/activate-status'),
+    ('notifications', 'notif',
+     'v1/notifications/users/{user}/vehicles/{vin}'),
+    ('gfc_restrictions', 'car',
+     'v1/cars/{vin}/settings/gfc-restrictions'),
+    # --- 乗る前エアコン ---
+    ('hvac_settings', 'user',
+     'nissan/remote-action/v1/cars/{vin}/hvac-settings'),
+    ('hvac_schedule', 'car',
+     'v2/cars/{vin}/actions/hvac-schedule'),
+    # --- エコ / 運転スコア ---
+    ('eco_daily_driving_score', 'car', 'v2/cars/{vin}/eco/daily-driving-score'),
+    ('eco_columns', 'car', 'v1/cars/{vin}/eco/columns'),
+    ('eco_top_local_ranking', 'car', 'v1/cars/{vin}/eco/top-local-ranking'),
+    ('eco_local_ranking_history', 'car', 'v1/cars/{vin}/eco/local-ranking-history'),
+    # --- 契約・車両情報 ---
+    ('contract', 'user', 'nissan/account/v1/cars/{vin}/contract'),
+    ('entitlements', 'user', 'nissan/account/v1/cars/{vin}/entitlements'),
+    ('profile', 'user', 'nissan/account/v1/cars/{vin}/profile'),
+    ('role_info', 'user', 'nissan/account/v1/cars/{vin}/role-info'),
+    ('campaign_info', 'user',
+     'nissan/account/v1/users/{user}/cars/{vin}/campaign-info'),
+    ('vehicle_reminder_settings', 'car', 'v1/cars/{vin}/VehicleReminderSettings'),
+    # --- お知らせ・入庫 ---
+    ('announcement_list', 'user', 'nissan/account/v1/cars/{vin}/announcement/list'),
+    ('announcement_unread', 'user',
+     'nissan/account/v1/cars/{vin}/announcement/unread-categories'),
+    ('nyuko_stream', 'user', 'nissan/account/v1/cars/{vin}/nyuko/stream'),
+)
+
+# HA の state は 255 文字まで
+PROBE_STATE_MAX = 250
