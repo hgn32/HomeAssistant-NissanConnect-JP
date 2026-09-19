@@ -181,8 +181,8 @@ def test_wake_up_swallows_errors():
 def test_fetch_probes_collects_payloads_and_errors(monkeypatch):
     from custom_components.nissan_connect.kamereon import kamereon_jp_const as jpc
     monkeypatch.setattr(jpc, 'PROBE_ENDPOINTS', (
-        ('good', 'user', 'nissan/account/v1/cars/{vin}/contract'),
-        ('bad', 'car', 'v1/cars/{vin}/settings/gfc-restrictions'),
+        ('good', 'user', 'nissan/account/v1/cars/{vin}/contract', None),
+        ('bad', 'car', 'v1/cars/{vin}/settings/gfc-restrictions', None),
     ), raising=False)
     from custom_components.nissan_connect.kamereon import kamereon_jp
     monkeypatch.setattr(kamereon_jp, 'PROBE_ENDPOINTS', jpc.PROBE_ENDPOINTS)
@@ -201,7 +201,7 @@ def test_fetch_probes_collects_payloads_and_errors(monkeypatch):
     vehicle._get = MagicMock(side_effect=fake_get)
     vehicle.fetch_probes()
 
-    assert vehicle.probe_data['good'] == {'payload': {'expiry': '2030-01-01'}}
+    assert vehicle.probe_data['good']['payload'] == {'expiry': '2030-01-01'}
     assert vehicle.probe_data['bad']['error'] == '0145'
 
 
@@ -220,3 +220,53 @@ def test_probe_summary_truncates():
     long = {'payload': {'x': 'a' * 500}}
     summary = vehicle.probe_summary(long)
     assert len(summary) <= 250 and summary.endswith('…')
+
+
+def test_probe_redacts_personal_fields():
+    vehicle = _make_vehicle()
+    payload = {'userInfo': {'userName': 'somebody', 'phoneNum': '000',
+                            'ncId': 'x', 'contractStartDate': None},
+               'subscriptionInfo': [{'subscriptionName': 'plan', 'vin': 'VIN1'}]}
+    redacted = vehicle._redact(payload)
+    assert redacted['userInfo']['userName'] == '***'
+    assert redacted['userInfo']['phoneNum'] == '***'
+    assert redacted['userInfo']['ncId'] == '***'
+    # 空や None は伏せても意味がないのでそのまま
+    assert redacted['userInfo']['contractStartDate'] is None
+    assert redacted['subscriptionInfo'][0]['vin'] == '***'
+    assert redacted['subscriptionInfo'][0]['subscriptionName'] == 'plan'
+
+
+def test_probe_variants_cover_gateway_and_uuid():
+    vehicle = _make_vehicle()
+    vehicle.uuid = 'UUID-1'
+    vehicle.gateway = 'AVN'
+    labels = [v[0] for v in vehicle._probe_variants()]
+    assert labels == ['vin', 'vin+gw', 'uuid', 'uuid+gw']
+    # gateway / uuid が無ければ VIN だけ
+    plain = _make_vehicle()
+    plain.uuid = None
+    plain.gateway = None
+    assert [v[0] for v in plain._probe_variants()] == ['vin']
+
+
+def test_promote_probe_values():
+    vehicle = _make_vehicle()
+    vehicle.probe_data = {
+        'contract': {'payload': {'subscriptionInfo': [
+            {'subscriptionName': 'docomo', 'subscriptionEndDate': '',
+             'subscriptionTypeCode': '0020'},
+            {'subscriptionName': 'plan', 'subscriptionEndDate': '20270630',
+             'subscriptionTypeCode': '0000'},
+        ]}},
+        'entitlements': {'payload': {'doorLockUnlock': {'remoteLock': True},
+                                     'hvacStart': {'remoteHvac': False}}},
+        'curfew_restrictions': {'payload': {'curfewRestrictions': [
+            {'enable': True}, {'enable': 'Enabled'}]}},
+    }
+    vehicle._promote_probe_values()
+    assert vehicle.subscription_name == 'plan'
+    assert vehicle.subscription_end_date == __import__('datetime').date(2027, 6, 30)
+    assert vehicle.remote_lock_entitled is True
+    assert vehicle.remote_hvac_entitled is False
+    assert vehicle.curfew_enabled is True

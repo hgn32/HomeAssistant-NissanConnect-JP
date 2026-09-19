@@ -84,6 +84,10 @@ async def async_setup_entry(hass, config, async_add_entities):
                     entities.append(TyreStatusSensor(coordinator, data[vehicle], key))
                 else:
                     entities.append(TyrePressureSensor(coordinator, data[vehicle], key))
+        if getattr(data[vehicle], 'subscription_name', None) is not None:
+            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'subscription_name', 'subscription_name', 'mdi:file-document-outline', entity_category=EntityCategory.DIAGNOSTIC))
+        if getattr(data[vehicle], 'subscription_end_date', None) is not None:
+            entities.append(DateSensor(coordinator, data[vehicle], 'subscription_end_date', 'subscription_end_date', 'mdi:calendar-end'))
         for key in sorted(getattr(data[vehicle], 'probe_data', {})):
             entities.append(ProbeSensor(coordinator, data[vehicle], key))
         if data[vehicle].battery_temperature is not None:
@@ -416,6 +420,26 @@ class TyreStatusSensor(KamereonEntity, SensorEntity):
     @property
     def native_value(self):
         return self.vehicle.tyre_pressure.get(self._key)
+
+
+class DateSensor(KamereonEntity, SensorEntity):
+    """date をそのまま公開するセンサー。TimestampSensor は日時用なので分けている。"""
+
+    _attr_device_class = SensorDeviceClass.DATE
+
+    def __init__(self, coordinator, vehicle, attribute, translation_key, icon):
+        self._attribute = attribute
+        self._attr_translation_key = translation_key
+        self._icon = icon
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return self._icon
+
+    @property
+    def native_value(self):
+        return getattr(self.vehicle, self._attribute, None)
 
 
 class ProbeSensor(KamereonEntity, SensorEntity):

@@ -86,44 +86,61 @@ REMOTE_ACTION_POLL_TIMEOUT = 60
 #   (キー, ベースURL種別, パステンプレート)
 #   ベースURL種別: 'user' = user_base_url, 'car' = car_adapter_base_url,
 #                  'notif' = notifications_base_url
+#   (キー, ベースURL種別, パステンプレート, クエリ)
+#   ベースURL種別: 'user' = user_base_url, 'car' = car_adapter_base_url,
+#                  'notif' = notifications_base_url
+#   クエリの値は {today} / {month} で当日・当月に置き換わる
 PROBE_ENDPOINTS = (
     # --- 通知・アラート設定 ---
     ('area_restrictions', 'user',
-     'nissan/notification-setting/v1/cars/{vin}/area-restrictions'),
+     'nissan/notification-setting/v1/cars/{vin}/area-restrictions', None),
     ('speed_restrictions', 'user',
-     'nissan/notification-setting/v1/cars/{vin}/speed-restrictions'),
+     'nissan/notification-setting/v1/cars/{vin}/speed-restrictions', None),
     ('curfew_restrictions', 'user',
-     'nissan/notification-setting/v2/cars/{vin}/curfew-restrictions'),
+     'nissan/notification-setting/v2/cars/{vin}/curfew-restrictions', None),
     ('notification_activate_status', 'user',
-     'nissan/notification-setting/v1/users/{user}/cars/{vin}/activate-status'),
+     'nissan/notification-setting/v1/users/{user}/cars/{vin}/activate-status', None),
     ('notifications', 'notif',
-     'v1/notifications/users/{user}/vehicles/{vin}'),
+     'v1/notifications/users/{user}/vehicles/{vin}',
+     {'realm': 'n-nissan-nc', 'langCode': 'JA'}),
     ('gfc_restrictions', 'car',
-     'v1/cars/{vin}/settings/gfc-restrictions'),
+     'v1/cars/{vin}/settings/gfc-restrictions', None),
     # --- 乗る前エアコン ---
     ('hvac_settings', 'user',
-     'nissan/remote-action/v1/cars/{vin}/hvac-settings'),
+     'nissan/remote-action/v1/cars/{vin}/hvac-settings', None),
     ('hvac_schedule', 'car',
-     'v2/cars/{vin}/actions/hvac-schedule'),
+     'v2/cars/{vin}/actions/hvac-schedule', None),
     # --- エコ / 運転スコア ---
-    ('eco_daily_driving_score', 'car', 'v2/cars/{vin}/eco/daily-driving-score'),
-    ('eco_columns', 'car', 'v1/cars/{vin}/eco/columns'),
-    ('eco_top_local_ranking', 'car', 'v1/cars/{vin}/eco/top-local-ranking'),
-    ('eco_local_ranking_history', 'car', 'v1/cars/{vin}/eco/local-ranking-history'),
+    ('eco_daily_driving_score', 'car', 'v2/cars/{vin}/eco/daily-driving-score',
+     {'targetDate': '{today}'}),
+    ('eco_columns', 'car', 'v1/cars/{vin}/eco/columns', None),
+    ('eco_top_local_ranking', 'car', 'v1/cars/{vin}/eco/top-local-ranking',
+     {'targetMonth': '{month}'}),
+    ('eco_local_ranking_history', 'car', 'v1/cars/{vin}/eco/local-ranking-history', None),
     # --- 契約・車両情報 ---
-    ('contract', 'user', 'nissan/account/v1/cars/{vin}/contract'),
-    ('entitlements', 'user', 'nissan/account/v1/cars/{vin}/entitlements'),
-    ('profile', 'user', 'nissan/account/v1/cars/{vin}/profile'),
-    ('role_info', 'user', 'nissan/account/v1/cars/{vin}/role-info'),
+    ('contract', 'user', 'nissan/account/v1/cars/{vin}/contract', None),
+    ('entitlements', 'user', 'nissan/account/v1/cars/{vin}/entitlements', None),
+    ('profile', 'user', 'nissan/account/v1/cars/{vin}/profile', None),
+    ('role_info', 'user', 'nissan/account/v1/cars/{vin}/role-info', None),
     ('campaign_info', 'user',
-     'nissan/account/v1/users/{user}/cars/{vin}/campaign-info'),
-    ('vehicle_reminder_settings', 'car', 'v1/cars/{vin}/VehicleReminderSettings'),
+     'nissan/account/v1/users/{user}/cars/{vin}/campaign-info', None),
+    ('vehicle_reminder_settings', 'car', 'v1/cars/{vin}/VehicleReminderSettings', None),
     # --- お知らせ・入庫 ---
-    ('announcement_list', 'user', 'nissan/account/v1/cars/{vin}/announcement/list'),
+    ('announcement_list', 'user', 'nissan/account/v1/cars/{vin}/announcement/list',
+     {'os': APP_OS}),
     ('announcement_unread', 'user',
-     'nissan/account/v1/cars/{vin}/announcement/unread-categories'),
-    ('nyuko_stream', 'user', 'nissan/account/v1/cars/{vin}/nyuko/stream'),
+     'nissan/account/v1/cars/{vin}/announcement/unread-categories', {'os': APP_OS}),
+    ('nyuko_stream', 'user', 'nissan/account/v1/cars/{vin}/nyuko/stream', None),
 )
 
 # HA の state は 255 文字まで
 PROBE_STATE_MAX = 250
+
+# プローブの結果に混ざる個人情報。センサーの属性にもログにも出したくないので伏せる。
+# contract が氏名・電話番号・会員IDを返してくるのを実機で確認済み。
+PROBE_REDACT_KEYS = frozenset({
+    'userName', 'userName1', 'userName2', 'phoneNum', 'phoneNumber', 'tel',
+    'ncId', 'nuId', 'mailAddress', 'email', 'address', 'zipCode',
+    'vin', 'uuid', 'registrationNumber',
+})
+PROBE_REDACTED = '***'

@@ -66,6 +66,17 @@ async def async_setup_entry(hass, config, async_add_entities):
         if car.fuel_low_warning is not None:
             entities.append(FuelLowWarningEntity(coordinator, car))
 
+        # entitlements / curfew は JP の未確認エンドポイントから昇格したもの
+        if getattr(car, 'remote_lock_entitled', None) is not None:
+            entities.append(FlagEntity(coordinator, car, 'remote_lock_entitled',
+                                       'remote_lock_entitled', 'mdi:lock-check'))
+        if getattr(car, 'remote_hvac_entitled', None) is not None:
+            entities.append(FlagEntity(coordinator, car, 'remote_hvac_entitled',
+                                       'remote_hvac_entitled', 'mdi:air-conditioner'))
+        if getattr(car, 'curfew_enabled', None) is not None:
+            entities.append(FlagEntity(coordinator, car, 'curfew_enabled',
+                                       'curfew_enabled', 'mdi:clock-alert-outline'))
+
     async_add_entities(entities, update_before_add=True)
 
 
@@ -218,3 +229,23 @@ class HealthLampEntity(KamereonEntity, BinarySensorEntity):
             'raw_value': self.vehicle.malfunction_lamps.get(self._payload_key),
             'last_updated': self.vehicle.health_status_last_updated,
         }
+
+
+class FlagEntity(KamereonEntity, BinarySensorEntity):
+    """vehicle の真偽値の属性をそのまま出す診断用エンティティ。"""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, vehicle, attribute, translation_key, icon):
+        self._attribute = attribute
+        self._attr_translation_key = translation_key
+        self._icon = icon
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return self._icon
+
+    @property
+    def is_on(self):
+        return getattr(self.vehicle, self._attribute, None)

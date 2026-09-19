@@ -98,6 +98,15 @@
       },
       "fuel_low_warning": {
         "name": "燃料残量警告"
+      },
+      "remote_lock_entitled": {
+        "name": "遠隔施錠 利用可否"
+      },
+      "remote_hvac_entitled": {
+        "name": "乗る前エアコン 利用可否"
+      },
+      "curfew_enabled": {
+        "name": "時間帯アラート"
       }
     },
     "button": {
@@ -253,6 +262,12 @@
       },
       "probe": {
         "name": "(未確認) {probe}"
+      },
+      "subscription_name": {
+        "name": "契約プラン"
+      },
+      "subscription_end_date": {
+        "name": "契約終了日"
       }
     }
   },

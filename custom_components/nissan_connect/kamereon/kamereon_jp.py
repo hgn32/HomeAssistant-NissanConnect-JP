@@ -15,6 +15,8 @@ from .kamereon_jp_const import (
     APP_OS_VERSION,
     APP_VERSION,
     PROBE_ENDPOINTS,
+    PROBE_REDACT_KEYS,
+    PROBE_REDACTED,
     PROBE_STATE_MAX,
     REMOTE_ACTION_FAILURE,
     REMOTE_ACTION_POLL_INTERVAL,
@@ -51,6 +53,11 @@ class JPSessionMixin:
             vehicle.uuid = vehicle_baseinfo.get('uuid')
             vehicle.gateway = vehicle_baseinfo.get('gateway')
             vehicle.probe_data = {}
+            vehicle.subscription_name = None
+            vehicle.subscription_end_date = None
+            vehicle.remote_lock_entitled = None
+            vehicle.remote_hvac_entitled = None
+            vehicle.curfew_enabled = None
             vehicles.append(vehicle)
             _registry[VEHICLES][vehicle.vin] = vehicle
         return vehicles
@@ -205,44 +212,124 @@ class JPVehicleMixin:
             'car': self.session.settings['car_adapter_base_url'],
             'notif': self.session.settings['notifications_base_url'],
         }
+        today = datetime.date.today()
         ids = {'vin': self.vin,
-               'uuid': getattr(self, 'uuid', None) or self.vin,
-               'user': self.user_id}
+               'user': self.user_id,
+               'today': today.isoformat(),
+               'month': today.strftime('%Y%m')}
 
-        for key, base, template in PROBE_ENDPOINTS:
-            url = bases[base] + template.format(**ids)
-            result = self._probe(key, url)
-            # VIN で 0101 が返るものは details / features と同じく UUID を試す
-            if (result.get('error') == '0101'
-                    and ids['uuid'] != self.vin and '{vin}' in template):
-                retry_url = bases[base] + template.format(
-                    **dict(ids, vin=ids['uuid']))
-                retried = self._probe(key, retry_url, id_type='UUID')
-                if 'error' not in retried:
-                    result = retried
+        for key, base, template, params in PROBE_ENDPOINTS:
+            query = {name: str(value).format(**ids)
+                     for name, value in (params or {}).items()}
+            result = None
+            for label, car_id, headers in self._probe_variants():
+                url = bases[base] + template.format(**dict(ids, vin=car_id))
+                result = self._probe(key, url, label, headers, query)
+                if 'error' not in result:
+                    break
+                # id やゲートウェイを変えても直らない種類のエラーなら諦める
+                if not self._probe_retryable(result['error']):
+                    break
             self.probe_data[key] = result
+        self._promote_probe_values()
 
-    def _probe(self, key, url, id_type=None):
+    def _probe_variants(self):
+        """車両の指定方法の候補。最初のものが今まで動いている組み合わせ。
+
+        アプリの X-Vehicle-Gateway は VIN ではなく VehicleGateway の名前
+        ("AVN" / "NGDC" / "MOCK") で、token-info の gateway がその値。
+        既定は今まで通り VIN にしておき、弾かれたときだけ他を試す。
+        """
+        vin = self.vin
+        uuid = getattr(self, 'uuid', None)
+        gateway = getattr(self, 'gateway', None)
+
+        variants = [('vin', vin, {'X-Vehicle-Gateway': vin})]
+        if gateway and gateway != vin:
+            variants.append(('vin+gw', vin, {'X-Vehicle-Gateway': gateway}))
+        if uuid and uuid != vin:
+            variants.append(('uuid', uuid, {'X-Vehicle-Gateway': vin,
+                                            'X-VehicleIdType': 'UUID'}))
+            if gateway and gateway != vin:
+                variants.append(('uuid+gw', uuid, {'X-Vehicle-Gateway': gateway,
+                                                   'X-VehicleIdType': 'UUID'}))
+        return variants
+
+    @staticmethod
+    def _probe_retryable(code):
+        """車両の指定方法を変えれば通るかもしれないエラーかどうか。"""
+        # 0101 トークン不正 / 0319 アクセス拒否 / 0604 対象が見つからない
+        return code in ('0101', '0319', '0604')
+
+    def _probe(self, key, url, label=None, headers=None, params=None):
         """1 エンドポイントを GET して、結果を辞書で返す。例外は出さない。"""
-        headers = {'Content-Type': 'application/vnd.api+json'}
-        if id_type:
-            headers['X-VehicleIdType'] = id_type
+        request_headers = {'Content-Type': 'application/vnd.api+json'}
+        request_headers.update(headers or {})
         try:
-            resp = self._get(url, headers=headers)
+            resp = self._get(url, headers=request_headers, params=params or None)
             body = resp.json()
         except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("probe %s failed: %s", key, err)
-            return {'error': 'request', 'detail': str(err)}
+            _LOGGER.debug("probe %s (%s) failed: %s", key, label, err)
+            return {'error': 'request', 'detail': str(err), 'variant': label}
         if 'errors' in body:
             first = (body['errors'] or [{}])[0]
-            _LOGGER.debug("probe %s rejected: %s", key, body['errors'])
+            _LOGGER.debug("probe %s (%s) rejected: %s", key, label, body['errors'])
             return {'error': first.get('code', 'unknown'),
-                    'detail': first.get('detail', '')}
+                    'detail': first.get('detail', ''),
+                    'variant': label}
         payload = body.get('data', body)
         if isinstance(payload, dict) and 'attributes' in payload:
             payload = payload['attributes']
-        _LOGGER.debug("probe %s: %s", key, payload)
-        return {'payload': payload}
+        payload = self._redact(payload)
+        _LOGGER.debug("probe %s (%s): %s", key, label, payload)
+        return {'payload': payload, 'variant': label}
+
+    @classmethod
+    def _redact(cls, value):
+        """個人情報になりうるキーの値を伏せる。"""
+        if isinstance(value, dict):
+            return {k: (PROBE_REDACTED if k in PROBE_REDACT_KEYS and v not in (None, '')
+                        else cls._redact(v))
+                    for k, v in value.items()}
+        if isinstance(value, list):
+            return [cls._redact(v) for v in value]
+        return value
+
+    def _promote_probe_values(self):
+        """確認が取れた項目を普通の属性に移す。"""
+        contract = (self.probe_data.get('contract') or {}).get('payload') or {}
+        for subscription in contract.get('subscriptionInfo') or []:
+            # 本契約 (0000) を見る。docomo in Car Connect (0020) は別枠
+            if subscription.get('subscriptionTypeCode') != '0000':
+                continue
+            self.subscription_name = subscription.get('subscriptionName')
+            self.subscription_end_date = self._parse_compact_date(
+                subscription.get('subscriptionEndDate'))
+            break
+
+        entitlements = (self.probe_data.get('entitlements') or {}).get('payload') or {}
+        lock = entitlements.get('doorLockUnlock') or {}
+        hvac = entitlements.get('hvacStart') or {}
+        if 'remoteLock' in lock:
+            self.remote_lock_entitled = bool(lock['remoteLock'])
+        if 'remoteHvac' in hvac:
+            self.remote_hvac_entitled = bool(hvac['remoteHvac'])
+
+        curfew = (self.probe_data.get('curfew_restrictions') or {}).get('payload') or {}
+        restrictions = curfew.get('curfewRestrictions')
+        if isinstance(restrictions, list):
+            self.curfew_enabled = any(
+                r.get('enable') in (True, 'Enabled') for r in restrictions)
+
+    @staticmethod
+    def _parse_compact_date(value):
+        """YYYYMMDD を date にする。空や書式違いは None。"""
+        if not value or len(value) != 8 or not value.isdigit():
+            return None
+        try:
+            return datetime.date(int(value[:4]), int(value[4:6]), int(value[6:]))
+        except ValueError:
+            return None
 
     @staticmethod
     def probe_summary(result):
@@ -256,7 +343,7 @@ class JPVehicleMixin:
         except Exception:  # noqa: BLE001
             text = str(result.get('payload'))
         if len(text) > PROBE_STATE_MAX:
-            text = text[:PROBE_STATE_MAX - 1] + '…'
+            text = text[:PROBE_STATE_MAX - 1] + '\u2026'
         return text
 
     def _set_remote_engine_status(self, raw):

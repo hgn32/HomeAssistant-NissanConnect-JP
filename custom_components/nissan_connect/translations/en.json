@@ -98,6 +98,15 @@
       },
       "fuel_low_warning": {
         "name": "Fuel Low Warning"
+      },
+      "remote_lock_entitled": {
+        "name": "Remote lock entitled"
+      },
+      "remote_hvac_entitled": {
+        "name": "Remote climate entitled"
+      },
+      "curfew_enabled": {
+        "name": "Curfew alert enabled"
       }
     },
     "button": {
@@ -253,6 +262,12 @@
       },
       "probe": {
         "name": "(unverified) {probe}"
+      },
+      "subscription_name": {
+        "name": "Subscription plan"
+      },
+      "subscription_end_date": {
+        "name": "Subscription end date"
       }
     }
   },
