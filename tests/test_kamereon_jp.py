@@ -222,6 +222,20 @@ def test_probe_summary_truncates():
     assert len(summary) <= 250 and summary.endswith('…')
 
 
+def test_probe_attributes_fit_the_recorder_limit():
+    """recorder が属性を捨てる 16384 バイトを超えたら切り詰める。"""
+    vehicle = _make_vehicle()
+    assert vehicle.probe_attributes(None) == {}
+    small = {'payload': {'items': []}, 'variant': 'vin'}
+    assert vehicle.probe_attributes(small) is small
+    big = {'payload': {'messages': [{'text': 'あ' * 200} for _ in range(200)]},
+           'variant': 'vin'}
+    trimmed = vehicle.probe_attributes(big)
+    assert trimmed['truncated'] is True
+    assert trimmed['variant'] == 'vin'
+    assert len(json.dumps(trimmed, ensure_ascii=False).encode('utf-8')) < 16384
+
+
 def test_probe_redacts_personal_fields():
     vehicle = _make_vehicle()
     payload = {'userInfo': {'userName': 'somebody', 'phoneNum': '000',

@@ -133,6 +133,10 @@ PROBE_ENDPOINTS = (
 # HA の state は 255 文字まで
 PROBE_STATE_MAX = 250
 
+# recorder は 16384 バイトを超える属性を捨てる (notifications が実際に超えた)。
+# 余白を見て、これを超える分は JSON 文字列にして切り詰める。
+PROBE_ATTR_MAX = 15000
+
 # プローブの結果に混ざる個人情報。センサーの属性にもログにも出したくないので伏せる。
 # contract が氏名・電話番号・会員IDを返してくるのを実機で確認済み。
 PROBE_REDACT_KEYS = frozenset({

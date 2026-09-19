@@ -14,6 +14,7 @@ from .kamereon_jp_const import (
     APP_OS,
     APP_OS_VERSION,
     APP_VERSION,
+    PROBE_ATTR_MAX,
     PROBE_ENDPOINTS,
     PROBE_REDACT_KEYS,
     PROBE_REDACTED,
@@ -345,6 +346,29 @@ class JPVehicleMixin:
         if len(text) > PROBE_STATE_MAX:
             text = text[:PROBE_STATE_MAX - 1] + '\u2026'
         return text
+
+    @staticmethod
+    def probe_attributes(result):
+        """(未確認) センサーの属性。recorder の上限に収まるよう切り詰める。
+
+        notifications は 500 件以上返してきて 16384 バイトを超え、recorder に
+        属性ごと捨てられる。大きいものは JSON 文字列にしてから切る。
+        """
+        if not result:
+            return {}
+        try:
+            text = json.dumps(result, ensure_ascii=False)
+        except Exception:  # noqa: BLE001
+            text = str(result)
+        raw = text.encode('utf-8')
+        if len(raw) <= PROBE_ATTR_MAX:
+            return result
+        return {
+            'variant': result.get('variant') if isinstance(result, dict) else None,
+            'truncated': True,
+            'payload_bytes': len(raw),
+            'payload_json': raw[:PROBE_ATTR_MAX].decode('utf-8', 'ignore'),
+        }
 
     def _set_remote_engine_status(self, raw):
         """remoteEngineStatus をアプリと同じ意味に落とす。"""

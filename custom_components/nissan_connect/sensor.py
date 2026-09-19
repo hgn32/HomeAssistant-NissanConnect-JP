@@ -468,7 +468,7 @@ class ProbeSensor(KamereonEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        return self.vehicle.probe_data.get(self._key) or {}
+        return self.vehicle.probe_attributes(self.vehicle.probe_data.get(self._key))
 
 
 class TimestampSensor(KamereonEntity, SensorEntity):
