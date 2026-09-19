@@ -132,8 +132,12 @@ def test_remote_action_is_traced(monkeypatch):
     vehicle.gateway = 'AVN'
     vehicle._post = MagicMock(return_value=_response({'data': {'id': 'action-9'}}))
     vehicle._get = MagicMock(side_effect=[
+        # POST の前に取る res-state
+        _response({'data': {'attributes': {'remoteEngineStatus': '6'}}}),
         _response({'data': {'attributes': {'status': 'PENDING'}}}),
         _response({'data': {'attributes': {'status': 'COMPLETED', 'error': {'code': 0}}}}),
+        # ポーリング終了後に取る res-state
+        _response({'data': {'attributes': {'remoteEngineStatus': '12'}}}),
     ])
     sink = MagicMock()
     vehicle.action_log_sink = sink
@@ -147,6 +151,8 @@ def test_remote_action_is_traced(monkeypatch):
     assert trace['request']['body']['data']['attributes']['targetCycleTime'] == 'normalStart'
     assert trace['response']['body'] == {'data': {'id': 'action-9'}}
     assert [p['status'] for p in trace['polls']] == ['PENDING', 'COMPLETED']
+    assert trace['res_state_before'] == {'remoteEngineStatus': '6'}
+    assert trace['res_state_after'] == {'remoteEngineStatus': '12'}
     assert trace['result'] == 'COMPLETED'
     assert trace['error'] is None
     sink.assert_called_once_with(trace)

@@ -97,18 +97,21 @@ GET {BFF}/alliance/action-status-polling/v1/cars/{vin}/actions/status?actionId={
               └─BL→ EngineStartExecutorImpl::execute  (0x114fd90)
                      body: {"data":{"type":"EngineStart","attributes":{"action":"stop"}}}
                      └─closure (0x11500ec) で API を選択:
-                          Vehicle の offset 0x14 の値 == 1 →
+                          EngineAction の index == 1 (startAndKeepLonger) →
                             EngineStartInstantDoubleApi (0x11504a8)
                             POST {BFF}/alliance/nissan-connector/v1/cars/{vin}/actions/engine-start
-                          それ以外 →
+                          それ以外 (start=0 / stop=2) →
                             EngineStartApi (0x115019c)
                             POST {BFF}/alliance/car-adapter/v1/cars/{vin}/actions/engine-start
 ```
 
 - `_executeRemoteEngine` の BL 呼び出し元は停止ダイアログの 1 箇所だけ。
-- `EngineAction.start` / `startAndKeepLonger` のプール参照先は `remote_hvac_start_alert_use_case.dart` と `vehicle_preferences.dart` のみで、engine-start 経路には出てこない。
-- **したがって `/actions/engine-start` は停止専用。始動には使わない。**
-- `EngineStartRequest.toJson` (0x115007c) のキーは `action` のみ。
+- `EngineAction.start` / `startAndKeepLonger` を実際に生成しているのは
+  `remote_hvac_start_alert_use_case`（確認ダイアログ）、`vehicle_preferences`（前回選択の保存）、
+  `execute_hvac_control_use_case::start`（HvacControl への変換）だけで、engine-start 経路には流れない。
+- **したがって出荷されているアプリでは `/actions/engine-start` は停止専用。始動には使わない。**
+  （実装上は start / startAndKeepLonger の分岐も残っているが、そこへ到達する画面が無い。3.1 参照）
+- `EngineStartRequest.toJson` (0x115004c) のキーは `action` のみ。
 
 ### 1.6 features（機能可用性マップ）のキー
 
@@ -171,16 +174,32 @@ GET {BFF}/alliance/action-status-polling/v1/cars/{vin}/actions/status?actionId={
 
 ## 3. 未確定・詰まっている点
 
-### 3.1 エンジン停止 API の分岐条件
-- 分岐は closure 0x11500ec の `cmp w0, #2`（smi タグ付き 2 = 値 1）。
-- 比較対象は `S.field@0x14` のオブジェクトの +8 にある int64。
-- `S` = `ExecuteEngineStartUseCaseImpl.field@0x14`（= `selectedSessionProvider` の値、null チェックあり）`.field@0xc`。
-- `Session` は `(user@0x8, vehicle@0xc, ccsGeneration@0x10)`、size 0x14（toString / == で確認）。よって `S` = `Session.vehicle`。
-- `Vehicle` の toString によるレイアウトは `(overview@8, config@0xc, primeMover@0x10, uuid@0x14, modelName@0x18, modelCode@0x1c, modelYear@0x20, displayName@0x24, displayModelName@0x28, displayGradeName@0x2c, nickname@0x30, thumbnailUrl@0x34)`。
-- **`S.field@0x14` = `uuid` になり、文字列を int64 として読んで 1 と比較することになる。意味が通らない。**
-  - 私のトレースに誤りがあるか、`Vehicle.uuid` が文字列ではない型か、`Session.vehicle` が別の `Vehicle` クラスか、のいずれか。判別できていない。
-- 参考: `primeMover` enum は `ice(0)`, `electricMotor(1)`。値 1 で nissan-connector に振り分けるなら意味は通るが、offset が 0x10 で一致しない。**推測にすぎないので採用しない。**
-- 分岐条件が決まるまで停止は実装しない（間違った系統に POST するリスク）。
+### 3.1 エンジン停止 API の分岐条件（解決済み）
+
+以前「Vehicle の offset 0x14 を int として 1 と比較していて意味が通らない」と書いた件の答え。
+比較対象は `Vehicle` ではなく **`EngineAction` enum** だった。
+
+```
+EngineAction  (asm/nml_ncx/domain/engine_start/engine_action.dart)
+  index 0 = "start"               pp+0x359a8
+  index 1 = "startAndKeepLonger"  pp+0x35820
+  index 2 = "stop"                pp+0x35a28
+```
+
+closure 0x11500ec の `ldur x3,[x0,#7]` は enum の index（unboxed int64）であって
+`Vehicle.uuid` ではない。したがって:
+
+| EngineAction | 投げ先 |
+|---|---|
+| `startAndKeepLonger` (1) | `EngineStartInstantDoubleApi` → `POST {BFF}/alliance/nissan-connector/v1/cars/{vin}/actions/engine-start` |
+| `start` (0) / `stop` (2) | `EngineStartApi` → `POST {BFF}/alliance/car-adapter/v1/cars/{vin}/actions/engine-start` |
+
+そして `ExecuteEngineStartUseCaseImpl::execute` (0x114fc08) は **定数 `EngineAction.stop` しか渡さない**
+（0x114fcbc で pp+0x35a28 をロードし、登録する機能名も `RemoteActionFeature.engineStop` = pp+0x2e230）。
+`EngineStartExecutorImpl` の start / startAndKeepLonger 側の分岐は、出荷されている画面からは到達しない。
+
+**結論: 停止は常に `car-adapter` の engine-start。nissan-connector 側は使わない。**
+`EngineStartRequest.toJson` (0x115004c) のキーは `action` のみ。
 
 ### 3.2 ポーリング間隔
 - 1 秒後の初回は確定。以後の間隔（"Remote action X is not finished. Will Get its status again N seconds later" の N）の出所は未確定。
@@ -189,7 +208,8 @@ GET {BFF}/alliance/action-status-polling/v1/cars/{vin}/actions/status?actionId={
 - 解決済み: `features.remoteEngineStart.operationTimeSetting`（1.7 参照）。
 
 ### 3.4 実車で観測した事実（解析とは別）
-2026-09-19 16:31〜16:33 JST に HA から操作したときの結果:
+
+#### 2026-09-19 16:31〜16:33 JST（v1.4 系、デバッグログ OFF）
 
 | 時刻 | 操作 | HA のポーリング結果 | 実車（ユーザー報告） |
 |---|---|---|---|
@@ -197,12 +217,65 @@ GET {BFF}/alliance/action-status-polling/v1/cars/{vin}/actions/status?actionId={
 | 16:32:26 | ドア施錠 | 22 秒後 CANCELLED / `Failed` | 施錠された |
 | 16:32:54 | エンジン始動 (20分) | 8 秒後 CANCELLED / `Failed` | エラー |
 
-- この 3 回はデバッグログが OFF の時間帯で、ポーリングの生レスポンスは残っていない。
-- 16:34:52 に `res-state` を読むと `{'remoteEngineStatus': '6'}`（readyForRemoteStart）。`cycleRemainingTime` 無し。
-- HA の履歴では `sensor.note_remote_engine_status` は 16:25 以降 6 のまま変化記録なし（ポーリング間隔内で取れていない）。
-- **成功した操作にも CANCELLED が返る原因は分かっていない。** 候補として `X-Vehicle-Gateway` が VIN であること（アプリと不一致）があるが、未検証。
+- **この車両では、車が実際に実行した操作にも `CANCELLED` / `Failed` が返る。**
+  つまり `CANCELLED` は「失敗」を意味しない。現状の HA は `CANCELLED` を例外にしているので、
+  成功した操作まで失敗として扱ってしまう。
+- 16:34:52 の `res-state` は `{'remoteEngineStatus': '6'}`（readyForRemoteStart）。
 
----
+#### 2026-09-19 22:27:30 JST（v1.5.0、アプリと同一形式で送信、ログ取得あり）
+
+送信内容（アプリの `postHvacControl` と同じ）:
+
+```
+POST {BFF}/nissan/remote-action/v1/cars/{vin}/hvac-control
+Authorization: Bearer ***   X-Vehicle-Gateway: AVN   Content-Type: application/vnd.api+json
+{"data":{"type":"HvacControl","attributes":{
+  "action":"start","targetCycleTime":"normalStart",
+  "hvacAccessorySetting":{"hvacFunctionRequest":1}}}}
+```
+
+ポーリング（actionId `5572abde-…`、1 秒間隔）:
+
+| 経過 | status |
+|---|---|
+| +1 秒 | 404 `No action(s) found for this vehicle.` |
+| +2〜10 秒 | `CREATED` |
+| +11〜16 秒 | `PENDING` |
+| +17 秒 | `CANCELLED` / `error.code: "Failed"` |
+
+記録本体: `actionType: ENGINE_START`, `clientId: "test"`, `realm: n-nissan-nc`, `userId: 437886`。
+**エンジンはかからなかった。**
+
+- 16:31 の成功時も同じ `CANCELLED` / `Failed` が返っていたので、
+  **このポーリング結果からは成功・失敗を区別できない。** 失敗の原因はここからは読み取れない。
+- `clientId: "test"` の出所は未確認。アプリ発の操作記録と突き合わせないと比較できない。
+- 車両側の制約（`RemoteEngineErrorStatus.errorDueToDurationBetween2ResCycles` =
+  連続リモート始動の間隔制限）が効いている可能性がある。16:31 に一度リモート始動している。
+  22:27 時点の `res-state` を取っていないので確認できていない。**未検証の仮説。**
+
+#### この回で追加した調査用プローブ（GET のみ、車両には何も送らない）
+
+| キー | エンドポイント | 目的 |
+|---|---|---|
+| `token_info` | `{BFF}/nissan/account/v1/token-info` | アクセストークンが何者として扱われているか |
+| `action_status_all` | `{BFF}/alliance/action-status-polling/v1/cars/{vin}/actions/status`（actionId なし） | アプリ発の操作記録が返るなら `clientId` を突き合わせる |
+
+### 3.5 認証経路（アプリ側の事実のみ）
+
+```
+AuthApi.login          POST {BFF}/nissan/account/v1/login          header X-App-Id、body {data:{type:"token",attributes:{username,password}}}
+AuthApi.exchangeToken  POST {BFF}/nissan/account/v1/exchange-token
+AuthApi.getTokenInfo   GET  {BFF}/nissan/account/v1/token-info
+AuthApi.refreshToken / logout
+```
+
+- `AuthType` enum: `ncid`(0) / `nuid`(1)（pp+0x1eeb8 / pp+0x1f0b8、`{ncid:"ncid", nuid:"nuid"}` のマップは pp+0x1ef28）。
+- `GarageUseCaseImpl::_resolveAuthType` (0xccc33c) はローカル DB の `CachedAuthType` を読み、
+  **無ければ `ncid` を既定にする**（closure 0xccca6c）。
+- CIAM 側は flutter_appauth。client id `4db8eab8-8088-4b92-9c14-9bc89fa49c2a`、
+  redirect `ncx://ciam.prd/login`（pp+0x2d6f0 / 0x2d6f8）。
+- HA の統合は `login`（username/password）を使っている。アプリの ncid 経路と同じ。
+  nuid 経路を使っているアカウントかどうかは APK からは決められない。
 
 ## 4. 私（AI）の作業上の誤りの記録
 

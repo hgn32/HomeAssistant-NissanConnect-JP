@@ -526,6 +526,8 @@ class JPVehicleMixin:
             'result': None,
             'error': None,
             'finished': None,
+            'res_state_before': None,
+            'res_state_after': None,
         }
         log = getattr(self, 'remote_action_log', None)
         if log is None:
@@ -553,6 +555,8 @@ class JPVehicleMixin:
         })
 
     def _trace_finish(self, trace, result, error=None):
+        if 'res_state_before' in trace and trace.get('res_state_after') is None:
+            trace['res_state_after'] = self.res_state_snapshot()
         trace['result'] = result
         trace['error'] = str(error) if error else None
         trace['finished'] = self._now()
@@ -566,17 +570,42 @@ class JPVehicleMixin:
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("remote action log sink failed: %s", err)
 
+    def res_state_snapshot(self):
+        """res-state をそのまま読む。遠隔操作の前後の車両状態を記録するため。
+
+        アプリもダッシュボードで同じ GET をしている。失敗しても操作は止めない。
+        """
+        if self.session.region != 'JP':
+            return None
+        try:
+            resp = self._get(
+                '{}v2/cars/{}/res-state'.format(
+                    self.session.settings['car_adapter_base_url'], self.vin),
+                headers={'Content-Type': 'application/vnd.api+json'}
+            )
+            body = resp.json()
+        except Exception as err:  # noqa: BLE001
+            return {'error': str(err)}
+        if 'errors' in body:
+            return {'errors': body['errors']}
+        return body.get('data', {}).get('attributes')
+
     def execute_remote_action(self, name, url, body, headers=None, wait=True,
                               double_start=False):
         """JP: 遠隔操作の POST → 結果ポーリング。全部をログに残す。
 
         アプリの順序と同じで、POST の前に他の呼び出しはしない。
         ヘッダは _request が X-Vehicle-Gateway を足す。
+
+        ポーリングの CANCELLED はこの車両では実際に実行された操作にも返るので、
+        判定材料として res-state を POST の前後に取って記録だけしておく
+        (送信内容は変えない。読み取りだけ)。
         """
         request_headers = {'Content-Type': 'application/vnd.api+json'}
         request_headers.update(headers or {})
         request_headers.setdefault('X-Vehicle-Gateway', self.gateway_header())
         trace = self._trace_start(name, 'POST', url, request_headers, body)
+        trace['res_state_before'] = self.res_state_snapshot()
         try:
             resp = self._post(url, data=json.dumps(body), headers=request_headers)
             try:
