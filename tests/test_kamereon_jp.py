@@ -233,7 +233,12 @@ def test_probe_attributes_fit_the_recorder_limit():
     trimmed = vehicle.probe_attributes(big)
     assert trimmed['truncated'] is True
     assert trimmed['variant'] == 'vin'
-    assert len(json.dumps(trimmed, ensure_ascii=False).encode('utf-8')) < 16384
+    # " のエスケープで膨らんだあとでも recorder の上限に収まっていること
+    assert len(json.dumps(trimmed, ensure_ascii=False).encode('utf-8')) <= 15000
+
+    quoted = {'payload': {'messages': [{'k': 'v'} for _ in range(3000)]}, 'variant': 'vin'}
+    assert len(json.dumps(vehicle.probe_attributes(quoted),
+                          ensure_ascii=False).encode('utf-8')) <= 15000
 
 
 def test_probe_redacts_personal_fields():

@@ -348,27 +348,40 @@ class JPVehicleMixin:
         return text
 
     @staticmethod
-    def probe_attributes(result):
+    def _json_size(value):
+        """HA が属性を保存するときと同じ、UTF-8 の JSON のバイト数。"""
+        try:
+            return len(json.dumps(value, ensure_ascii=False).encode('utf-8'))
+        except Exception:  # noqa: BLE001
+            return PROBE_ATTR_MAX + 1
+
+    @classmethod
+    def probe_attributes(cls, result):
         """(未確認) センサーの属性。recorder の上限に収まるよう切り詰める。
 
         notifications は 500 件以上返してきて 16384 バイトを超え、recorder に
-        属性ごと捨てられる。大きいものは JSON 文字列にしてから切る。
+        属性ごと捨てられる。大きいものは JSON 文字列にしてから切るが、文字列に
+        入れ直すと " のエスケープで膨らむので、収まるまで半分にして測り直す。
         """
         if not result:
             return {}
-        try:
-            text = json.dumps(result, ensure_ascii=False)
-        except Exception:  # noqa: BLE001
-            text = str(result)
-        raw = text.encode('utf-8')
-        if len(raw) <= PROBE_ATTR_MAX:
+        if cls._json_size(result) <= PROBE_ATTR_MAX:
             return result
-        return {
-            'variant': result.get('variant') if isinstance(result, dict) else None,
-            'truncated': True,
-            'payload_bytes': len(raw),
-            'payload_json': raw[:PROBE_ATTR_MAX].decode('utf-8', 'ignore'),
-        }
+
+        raw = json.dumps(result, ensure_ascii=False).encode('utf-8')
+        variant = result.get('variant') if isinstance(result, dict) else None
+        limit = PROBE_ATTR_MAX
+        while limit >= 64:
+            trimmed = {
+                'variant': variant,
+                'truncated': True,
+                'payload_bytes': len(raw),
+                'payload_json': raw[:limit].decode('utf-8', 'ignore'),
+            }
+            if cls._json_size(trimmed) <= PROBE_ATTR_MAX:
+                return trimmed
+            limit //= 2
+        return {'variant': variant, 'truncated': True, 'payload_bytes': len(raw)}
 
     def _set_remote_engine_status(self, raw):
         """remoteEngineStatus をアプリと同じ意味に落とす。"""
