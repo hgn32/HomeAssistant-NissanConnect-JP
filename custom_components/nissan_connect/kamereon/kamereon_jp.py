@@ -11,11 +11,11 @@ import time
 from .kamereon_const import Feature, VEHICLES
 from .kamereon_jp_const import (
     APP_DEVICE_INFO,
-    PROBE_ENDPOINTS,
-    PROBE_STATE_MAX,
     APP_OS,
     APP_OS_VERSION,
     APP_VERSION,
+    PROBE_ENDPOINTS,
+    PROBE_STATE_MAX,
     REMOTE_ACTION_FAILURE,
     REMOTE_ACTION_POLL_INTERVAL,
     REMOTE_ACTION_POLL_TIMEOUT,

@@ -17,7 +17,8 @@ class EngineCycleTime(enum.Enum):
     """JP: hvac-control の targetCycleTime。
 
     アプリの EngineAction.start / startAndKeepLonger に対応する。
-    doubleStart は RemoteActionFeature.hvacOnRes20mins、つまり 2 サイクル (20 分) 運転。
+    アプリの表記は normalStart が「10分間作動」、doubleStart が「20分間作動」
+    (RemoteActionFeature.hvacOnRes20mins、「連続起動は最長 20 分までです」)。
     """
     NORMAL = 'normalStart'
     DOUBLE = 'doubleStart'
