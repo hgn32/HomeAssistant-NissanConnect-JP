@@ -146,6 +146,12 @@ PROBE_ENDPOINTS = (
     ('announcement_unread', 'user',
      'nissan/account/v1/cars/{vin}/announcement/unread-categories', {'os': APP_OS}),
     ('nyuko_stream', 'user', 'nissan/account/v1/cars/{vin}/nyuko/stream', None),
+    # --- トークンの素性 (遠隔操作の記録に clientId "test" が付く原因の切り分け用) ---
+    ('token_info', 'user', 'nissan/account/v1/token-info', None),
+    # --- この車両の遠隔操作の記録。actionId を付けないと何が返るかを見る。
+    #     アプリ発の操作が一緒に返るなら clientId を突き合わせられる ---
+    ('action_status_all', 'user',
+     'alliance/action-status-polling/v1/cars/{vin}/actions/status', None),
 )
 
 # HA の state は 255 文字まで
