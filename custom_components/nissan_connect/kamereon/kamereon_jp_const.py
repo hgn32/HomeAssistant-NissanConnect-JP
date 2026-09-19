@@ -83,9 +83,6 @@ REMOTE_ACTION_POLL_TIMEOUT = 60
 # アプリには存在するが、実機のレスポンスをまだ確認していないエンドポイント。
 # 読み取りだけ行い、中身をそのまま「(未確認)」センサーとして出す。
 # 確認が取れたものから個別のセンサーに昇格させる。
-#   (キー, ベースURL種別, パステンプレート)
-#   ベースURL種別: 'user' = user_base_url, 'car' = car_adapter_base_url,
-#                  'notif' = notifications_base_url
 #   (キー, ベースURL種別, パステンプレート, クエリ)
 #   ベースURL種別: 'user' = user_base_url, 'car' = car_adapter_base_url,
 #                  'notif' = notifications_base_url
