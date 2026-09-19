@@ -64,10 +64,11 @@ def test_remote_engine_status_decoding(raw, expected):
 
 
 def test_hvac_control_matches_app_payload():
-    """アプリと同じ targetCycleTime / hvacAccessorySetting を送る。"""
+    """アプリと同じ targetCycleTime / hvacAccessorySetting を送り、温度は送らない。"""
     vehicle = _make_vehicle([Feature.REMOTE_ENGINE_START])
+    vehicle.gateway = 'AVN'
     vehicle._post = MagicMock(return_value=_response({'data': {'id': 'action-1'}}))
-    vehicle.poll_remote_action = MagicMock()
+    vehicle.poll_remote_action = MagicMock(return_value=RemoteActionStatus.COMPLETED)
 
     vehicle.set_hvac_status(HVACAction.START, 21, cycle_time=EngineCycleTime.DOUBLE)
 
@@ -79,7 +80,139 @@ def test_hvac_control_matches_app_payload():
     assert attributes['action'] == 'start'
     assert attributes['targetCycleTime'] == 'doubleStart'
     assert attributes['hvacAccessorySetting'] == {'hvacFunctionRequest': 1}
-    vehicle.poll_remote_action.assert_called_once_with('action-1')
+    # ダッシュボードもエアコン設定画面も targetTemperature / startDateTime は渡さない
+    assert 'targetTemperature' not in attributes
+    assert 'startDateTime' not in attributes
+    headers = vehicle._post.call_args[1]['headers']
+    assert headers['X-Vehicle-Gateway'] == 'AVN'
+    assert headers['Content-Type'] == 'application/vnd.api+json'
+    # 20分始動は 400 秒まで待つ
+    vehicle.poll_remote_action.assert_called_once()
+    assert vehicle.poll_remote_action.call_args[0] == ('action-1',)
+    assert vehicle.poll_remote_action.call_args[1]['timeout'] == 400
+
+
+def test_gateway_header_falls_back_to_vin():
+    vehicle = _make_vehicle()
+    assert vehicle.gateway_header() == 'VIN0000000000000'
+    vehicle.gateway = 'NGDC'
+    assert vehicle.gateway_header() == 'NGDC'
+
+
+def test_request_adds_gateway_header():
+    """_request は全リクエストに token-info の gateway を付ける。"""
+    vehicle = _make_vehicle()
+    vehicle.gateway = 'AVN'
+    vehicle.session.oauth.get = MagicMock(return_value=_response({}))
+
+    vehicle._get('https://bff/x', headers={'Content-Type': 'application/vnd.api+json'})
+
+    headers = vehicle.session.oauth.get.call_args[1]['headers']
+    assert headers['X-Vehicle-Gateway'] == 'AVN'
+
+
+@pytest.mark.parametrize('gateway,double,expected', [
+    ('NGDC', False, 300),
+    ('NGDC', True, 300),
+    ('AVN', True, 400),
+    ('AVN', False, 200),
+    (None, False, 200),
+])
+def test_remote_action_timeout_matches_app(gateway, double, expected):
+    vehicle = _make_vehicle()
+    vehicle.gateway = gateway
+    assert vehicle.remote_action_timeout(double_start=double) == expected
+
+
+def test_remote_action_is_traced(monkeypatch):
+    """POST / レスポンス / 各ポーリングがそのまま記録され、sink に渡る。"""
+    monkeypatch.setattr(
+        'custom_components.nissan_connect.kamereon.kamereon_jp.time.sleep', lambda _: None)
+    vehicle = _make_vehicle([Feature.REMOTE_ENGINE_START])
+    vehicle.gateway = 'AVN'
+    vehicle._post = MagicMock(return_value=_response({'data': {'id': 'action-9'}}))
+    vehicle._get = MagicMock(side_effect=[
+        _response({'data': {'attributes': {'status': 'PENDING'}}}),
+        _response({'data': {'attributes': {'status': 'COMPLETED', 'error': {'code': 0}}}}),
+    ])
+    sink = MagicMock()
+    vehicle.action_log_sink = sink
+
+    vehicle.set_hvac_status(HVACAction.START, cycle_time=EngineCycleTime.NORMAL)
+
+    trace = vehicle.last_remote_action_trace()
+    assert trace['action'] == 'hvac_start'
+    assert trace['request']['url'].endswith('/hvac-control')
+    assert trace['request']['headers']['X-Vehicle-Gateway'] == 'AVN'
+    assert trace['request']['body']['data']['attributes']['targetCycleTime'] == 'normalStart'
+    assert trace['response']['body'] == {'data': {'id': 'action-9'}}
+    assert [p['status'] for p in trace['polls']] == ['PENDING', 'COMPLETED']
+    assert trace['result'] == 'COMPLETED'
+    assert trace['error'] is None
+    sink.assert_called_once_with(trace)
+
+
+def test_remote_action_failure_is_traced(monkeypatch):
+    monkeypatch.setattr(
+        'custom_components.nissan_connect.kamereon.kamereon_jp.time.sleep', lambda _: None)
+    vehicle = _make_vehicle([Feature.REMOTE_ENGINE_START])
+    vehicle._post = MagicMock(return_value=_response({'data': {'id': 'action-9'}}))
+    vehicle._get = MagicMock(return_value=_response(
+        {'data': {'attributes': {'status': 'CANCELLED', 'error': {'code': 'Failed'}}}}))
+
+    with pytest.raises(ValueError, match='CANCELLED'):
+        vehicle.set_hvac_status(HVACAction.START)
+
+    trace = vehicle.last_remote_action_trace()
+    assert trace['result'] == 'failed'
+    assert 'CANCELLED' in trace['error']
+    assert trace['polls'][0]['error_code'] == 'Failed'
+    assert trace['polls'][0]['body']['data']['attributes']['status'] == 'CANCELLED'
+
+
+def test_lock_matches_app_payload():
+    vehicle = _make_vehicle([Feature.APP_DOOR_LOCKING])
+    vehicle.gateway = 'AVN'
+    vehicle._post = MagicMock(return_value=_response({'data': {'id': 'lock-1'}}))
+    vehicle.poll_remote_action = MagicMock(return_value=RemoteActionStatus.COMPLETED)
+
+    vehicle.lock()
+
+    url, = vehicle._post.call_args[0]
+    assert url.endswith('nissan/remote-action/v2/cars/VIN0000000000000/lock')
+    body = json.loads(vehicle._post.call_args[1]['data'])
+    assert body == {'data': {'type': 'ncRemoteLock', 'attributes': {}}}
+    assert vehicle._post.call_args[1]['headers']['X-Vehicle-Gateway'] == 'AVN'
+    assert vehicle.poll_remote_action.call_args[1]['timeout'] == 200
+    assert vehicle.last_remote_action_trace()['action'] == 'lock'
+
+
+def test_authorization_is_redacted_in_trace():
+    vehicle = _make_vehicle()
+    trace = vehicle._trace_start('x', 'POST', 'https://bff/x',
+                                 {'Authorization': 'Bearer secret', 'X-Vehicle-Gateway': 'AVN'}, {})
+    assert trace['request']['headers'] == {'Authorization': '***', 'X-Vehicle-Gateway': 'AVN'}
+
+
+def test_remote_action_log_is_capped():
+    vehicle = _make_vehicle()
+    for i in range(30):
+        vehicle._trace_start('x{}'.format(i), 'POST', 'https://bff/x', {}, {})
+    assert len(vehicle.remote_action_log) == 20
+    assert vehicle.remote_action_log[-1]['action'] == 'x29'
+
+
+@pytest.mark.parametrize('config,expected', [
+    ({}, None),
+    ({'remoteEngineStart': {'operationTimeSetting': True}}, True),
+    ({'remoteEngineStart': {'operationTimeSetting': False}}, False),
+    ({'remoteEngineStart': {'operationTimeSetting': {'available': True}}}, True),
+    ({'remoteEngineStart': {'available': True}}, None),
+])
+def test_double_start_available_follows_features(config, expected):
+    vehicle = _make_vehicle()
+    vehicle.app_config = config
+    assert vehicle.double_start_available() is expected
 
 
 def test_hvac_control_stop_has_no_cycle_time():
@@ -111,7 +244,7 @@ def test_fetch_remote_action_status():
 
 def test_poll_remote_action_success(monkeypatch):
     monkeypatch.setattr(
-        'custom_components.nissan_connect.kamereon.kamereon.time.sleep', lambda _: None)
+        'custom_components.nissan_connect.kamereon.kamereon_jp.time.sleep', lambda _: None)
     vehicle = _make_vehicle()
     vehicle.fetch_remote_action_status = MagicMock(side_effect=[
         (RemoteActionStatus.PENDING, None),
@@ -124,7 +257,7 @@ def test_poll_remote_action_success(monkeypatch):
 
 def test_poll_remote_action_rejected(monkeypatch):
     monkeypatch.setattr(
-        'custom_components.nissan_connect.kamereon.kamereon.time.sleep', lambda _: None)
+        'custom_components.nissan_connect.kamereon.kamereon_jp.time.sleep', lambda _: None)
     vehicle = _make_vehicle()
     vehicle.fetch_remote_action_status = MagicMock(
         return_value=(RemoteActionStatus.REJECTED, 42))

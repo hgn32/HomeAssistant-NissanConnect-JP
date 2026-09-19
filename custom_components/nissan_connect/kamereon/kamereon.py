@@ -497,6 +497,9 @@ class Vehicle(JPVehicleMixin):
         self.gateway = data.get('gateway')
         # JP: 未確認エンドポイントの生レスポンス
         self.probe_data = {}
+        # JP: 遠隔操作のリクエスト/レスポンス/ポーリングの記録と、それを書き出す先
+        self.remote_action_log = []
+        self.action_log_sink = None
         self.next_hvac_start_date = None
         self.next_target_temperature = None
         self.hvac_status_last_updated = None
@@ -546,10 +549,11 @@ class Vehicle(JPVehicleMixin):
                 if payload_key in self.malfunction_lamps]
 
     def _request(self, method, url, headers=None, params=None, data=None, max_retries=3):
-        # JP のアプリは全リクエストに X-Vehicle-Gateway を付ける
+        # JP のアプリは全リクエストに X-Vehicle-Gateway を付ける。値は VIN ではなく
+        # token-info の gateway (AVN / NGDC / MOCK / その名前)
         if self.session.region == 'JP':
             headers = dict(headers or {})
-            headers.setdefault('X-Vehicle-Gateway', self.vin)
+            headers.setdefault('X-Vehicle-Gateway', self.gateway_header())
 
         for attempt in range(max_retries):
             try:
@@ -805,44 +809,42 @@ class Vehicle(JPVehicleMixin):
         attributes = {
             'action': action.value
         }
+        if self.session.region == 'JP':
+            # アプリのダッシュボード / エアコン設定画面のどちらも hvac-control に
+            # targetTemperature を渡さない (ExecuteHvacControlUseCase.start の呼び出し元は
+            # hvacAccessorySetting と targetCycleTime しか指定しない)。
+            # 始動させるかどうかは action ではなく targetCycleTime で指示する
+            # (HvacControlExecutorImpl 0x114e0f0: normalStart / doubleStart)。
+            if action == HVACAction.START:
+                attributes['targetCycleTime'] = cycle_time.value
+                # toHvacAccessorySettingTurnOn は hvacFunctionRequest=1 を必ず付ける。
+                # シート/デフロスタは装備のある車でだけ付く (この車の features は未確認)
+                attributes['hvacAccessorySetting'] = {'hvacFunctionRequest': 1}
+            return self.execute_remote_action(
+                'hvac_start' if action == HVACAction.START else 'hvac_stop',
+                '{}nissan/remote-action/v1/cars/{}/hvac-control'.format(
+                    self.session.settings['user_base_url'], self.vin),
+                {'data': {'type': 'HvacControl', 'attributes': attributes}},
+                wait=wait,
+                double_start=(action == HVACAction.START and cycle_time == EngineCycleTime.DOUBLE),
+            )
+
         if action == HVACAction.START:
             attributes['targetTemperature'] = target_temperature
         if start is not None:
             attributes['startDateTime'] = start.isoformat(timespec='seconds')
-
-        if self.session.region == 'JP':
-            # JP の「乗る前エアコン」でエンジンを始動させるかどうかは action ではなく
-            # targetCycleTime で指示する (アプリの EngineAction.start が "normalStart"、
-            # startAndKeepLonger が "doubleStart" に対応)。これが無いとエアコン起動のみ
-            # の要求になり、車両が寝ていると始動しない
-            if action == HVACAction.START:
-                attributes['targetCycleTime'] = cycle_time.value
-                # アプリの toHvacAccessorySettingTurnOn は必ずこのオブジェクトを付ける。
-                # シート/デフロスタは対応車のみで、未指定ならキーごと省略される
-                attributes['hvacAccessorySetting'] = {'hvacFunctionRequest': 1}
-            resp = self._post(
-                '{}nissan/remote-action/v1/cars/{}/hvac-control'.format(self.session.settings['user_base_url'], self.vin),
-                data=json.dumps({
-                    'data': {
-                        'type': 'HvacControl',
-                        'attributes': attributes
-                    }
-                }),
-                headers={'Content-Type': 'application/vnd.api+json', 'X-Vehicle-Gateway': self.vin}
-            )
-        else:
-            if srp is not None:
-                attributes['srp'] = srp
-            resp = self._post(
-                '{}v1/cars/{}/actions/hvac-start'.format(self.session.settings['car_adapter_base_url'], self.vin),
-                data=json.dumps({
-                    'data': {
-                        'type': 'HvacStart',
-                        'attributes': attributes
-                    }
-                }),
-                headers={'Content-Type': 'application/vnd.api+json'}
-            )
+        if srp is not None:
+            attributes['srp'] = srp
+        resp = self._post(
+            '{}v1/cars/{}/actions/hvac-start'.format(self.session.settings['car_adapter_base_url'], self.vin),
+            data=json.dumps({
+                'data': {
+                    'type': 'HvacStart',
+                    'attributes': attributes
+                }
+            }),
+            headers={'Content-Type': 'application/vnd.api+json'}
+        )
         body = resp.json()
         _LOGGER.debug("hvac-control response: status=%s body=%s", resp.status_code, body)
         if 'errors' in body:
@@ -859,12 +861,13 @@ class Vehicle(JPVehicleMixin):
             # JP のアプリには遠隔解錠のUI/APIが存在しない (盗難防止のための仕様と見られる)
             if action == 'unlock':
                 raise NotImplementedError('NissanConnect JP does not expose a remote unlock action')
-            resp = self._post(
+            # RemoteLockExecutorImpl (0x114cc4c): type "ncRemoteLock"、attributes は空。
+            # LockApi (0x114cfc8): /nissan/remote-action/v2/cars/{vin}/lock
+            return self.execute_remote_action(
+                'lock',
                 '{}nissan/remote-action/v2/cars/{}/lock'.format(self.session.settings['user_base_url'], self.vin),
-                data=json.dumps({
-                    'data': {'type': 'ncRemoteLock', 'attributes': {}}
-                }),
-                headers={'Content-Type': 'application/vnd.api+json', 'X-Vehicle-Gateway': self.vin}
+                {'data': {'type': 'ncRemoteLock', 'attributes': {}}},
+                wait=wait,
             )
         else:
             if group is None:

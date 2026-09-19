@@ -73,11 +73,29 @@ class RemoteActionStatus(enum.Enum):
 REMOTE_ACTION_SUCCESS = (RemoteActionStatus.COMPLETED, RemoteActionStatus.SYNCHRONIZED)
 REMOTE_ACTION_FAILURE = (RemoteActionStatus.REJECTED, RemoteActionStatus.CANCELLED)
 
-# アプリは POST の 1 秒後に最初のポーリングを行い、以後 1 秒間隔で繰り返す。
-# タイムアウトはアプリでは CDN の app-config.json 由来で取得できなかったので
-# こちらで決め打ちする
+# アプリは POST の 1 秒後に最初のポーリングを行う (RegisterRemoteActionUseCase が
+# Duration 1 秒で遅延タスクを登録する)。2 回目以降の間隔はバイナリから取れていないので
+# 1 秒のままにしてある。
 REMOTE_ACTION_POLL_INTERVAL = 1
-REMOTE_ACTION_POLL_TIMEOUT = 60
+
+# 打ち切り秒数は RemoteActionTimeoutResolverImpl (0x16d45a8) がゲートウェイで決める:
+#   NGDC            → 300 秒
+#   AVN / MOCK      → engineDoubleStart (20分始動) なら 400 秒、それ以外は 200 秒
+#   Other           → アプリでは "Unsupported gateway" エラー。こちらは 200 秒に倒す
+REMOTE_ACTION_TIMEOUT_NGDC = 300
+REMOTE_ACTION_TIMEOUT_DOUBLE_START = 400
+REMOTE_ACTION_TIMEOUT_DEFAULT = 200
+GATEWAY_NGDC = 'NGDC'
+
+# 遠隔操作のリクエスト/レスポンス/ポーリングをそのまま残しておく件数と、
+# HA の設定ディレクトリに追記する JSON Lines のファイル名
+REMOTE_ACTION_LOG_MAX = 20
+REMOTE_ACTION_LOG_FILE = 'nissan_connect_remote_actions.jsonl'
+
+# 20分始動 (doubleStart) をアプリが出す条件:
+#   features の remoteEngineStart.operationTimeSetting
+#   (EngineStartConfig.isOperationTimeSettingAvailable 0x114f514 → 確認ダイアログの選択肢)
+FEATURE_OPERATION_TIME_SETTING = ('remoteEngineStart', 'operationTimeSetting')
 
 
 # アプリには存在するが、実機のレスポンスをまだ確認していないエンドポイント。

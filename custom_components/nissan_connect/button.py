@@ -36,7 +36,14 @@ async def async_setup_entry(hass, config, async_add_entities):
         # JP の ICE 車は温度指定のない単純なリモートエンジンスタートのみ持つ
         if Feature.REMOTE_ENGINE_START in data[vehicle].features:
             entities.append(EngineStartButton(coordinator, data[vehicle]))
-            entities.append(EngineStartLongButton(coordinator, data[vehicle]))
+            # 20分始動はアプリでは features の remoteEngineStart.operationTimeSetting が
+            # 真のときだけ選択肢に出る。features が取れていないときは従来どおり出す
+            double_start = data[vehicle].double_start_available()
+            if double_start is None or double_start:
+                entities.append(EngineStartLongButton(coordinator, data[vehicle]))
+            else:
+                _LOGGER.info("%s: remoteEngineStart.operationTimeSetting is off; not adding the 20-minute start button",
+                             data[vehicle].vin)
 
     async_add_entities(entities, update_before_add=True)
 

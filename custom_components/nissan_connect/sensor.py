@@ -90,6 +90,9 @@ async def async_setup_entry(hass, config, async_add_entities):
             entities.append(DateSensor(coordinator, data[vehicle], 'subscription_end_date', 'subscription_end_date', 'mdi:calendar-end'))
         for key in sorted(getattr(data[vehicle], 'probe_data', {})):
             entities.append(ProbeSensor(coordinator, data[vehicle], key))
+        if data[vehicle].session.region == 'JP':
+            entities.append(RemoteActionLogSensor(coordinator, data[vehicle]))
+            entities.append(AppFeatureMapSensor(coordinator, data[vehicle]))
         if data[vehicle].battery_temperature is not None:
             entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'battery_temperature', 'battery_temperature', 'mdi:thermometer-alert'))
         if data[vehicle].battery_bar_level is not None:
@@ -469,6 +472,52 @@ class ProbeSensor(KamereonEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         return self.vehicle.probe_attributes(self.vehicle.probe_data.get(self._key))
+
+
+class RemoteActionLogSensor(KamereonEntity, SensorEntity):
+    """JP: 直近の遠隔操作のリクエスト / レスポンス / ポーリングをそのまま持つ。
+
+    ログレベルに関係なく残る。state は「操作 → 結果」、属性に全体
+    (Authorization は伏せ、recorder の上限に収まるよう切り詰める)。
+    """
+
+    _attr_translation_key = 'remote_action_log'
+    _attr_icon = 'mdi:text-box-search-outline'
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def native_value(self):
+        trace = self.vehicle.last_remote_action_trace()
+        if not trace:
+            return None
+        return '{} -> {}'.format(trace.get('action'), trace.get('result'))
+
+    @property
+    def extra_state_attributes(self):
+        trace = self.vehicle.last_remote_action_trace()
+        if not trace:
+            return {}
+        attributes = self.vehicle.probe_attributes(self.vehicle._redact(trace))
+        attributes['history'] = len(self.vehicle.remote_action_log)
+        return attributes
+
+
+class AppFeatureMapSensor(KamereonEntity, SensorEntity):
+    """JP: アプリの機能可用性マップ (features) の生の中身。ボタンの出し分け根拠の確認用。"""
+
+    _attr_translation_key = 'app_feature_map'
+    _attr_icon = 'mdi:feature-search-outline'
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def native_value(self):
+        config = self.vehicle.app_config or {}
+        return len(config)
+
+    @property
+    def extra_state_attributes(self):
+        config = self.vehicle.app_config or {}
+        return self.vehicle.probe_attributes({'payload': self.vehicle._redact(config)})
 
 
 class TimestampSensor(KamereonEntity, SensorEntity):

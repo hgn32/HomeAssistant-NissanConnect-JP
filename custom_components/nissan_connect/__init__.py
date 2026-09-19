@@ -1,7 +1,9 @@
+import json
 import logging
 from datetime import timedelta
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from .kamereon import NCISession
+from .kamereon.kamereon_jp_const import REMOTE_ACTION_LOG_FILE
 from .coordinator import KamereonFetchCoordinator, KamereonPollCoordinator, StatisticsCoordinator
 from .const import *
 
@@ -10,6 +12,21 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass, config) -> bool:
     return True
+
+
+def _remote_action_log_sink(hass):
+    """遠隔操作の記録を設定ディレクトリの JSON Lines に追記する。
+
+    ログレベルや再起動に関係なく残す。遠隔操作は executor スレッドで動くので
+    同期のファイル書き込みでよい。
+    """
+    path = hass.config.path(REMOTE_ACTION_LOG_FILE)
+
+    def sink(trace):
+        with open(path, 'a', encoding='utf-8') as handle:
+            handle.write(json.dumps(trace, ensure_ascii=False, default=str) + '\n')
+
+    return sink
 
 
 async def async_update_listener(hass, entry):
@@ -66,6 +83,10 @@ async def async_setup_entry(hass, entry):
 
     _LOGGER.debug("Finding vehicles")
     for vehicle in await hass.async_add_executor_job(kamereon_session.fetch_vehicles):
+        if config["region"] == 'JP':
+            vehicle.action_log_sink = _remote_action_log_sink(hass)
+            _LOGGER.info("%s: gateway=%s remoteEngineStart=%s", vehicle.vin, vehicle.gateway,
+                         (vehicle.app_config or {}).get('remoteEngineStart'))
         await hass.async_add_executor_job(vehicle.fetch_all)
         if vehicle.vin not in data[DATA_VEHICLES]:
             data[DATA_VEHICLES][vehicle.vin] = vehicle

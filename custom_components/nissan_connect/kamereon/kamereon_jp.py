@@ -19,10 +19,15 @@ from .kamereon_jp_const import (
     PROBE_REDACT_KEYS,
     PROBE_REDACTED,
     PROBE_STATE_MAX,
+    FEATURE_OPERATION_TIME_SETTING,
+    GATEWAY_NGDC,
     REMOTE_ACTION_FAILURE,
+    REMOTE_ACTION_LOG_MAX,
     REMOTE_ACTION_POLL_INTERVAL,
-    REMOTE_ACTION_POLL_TIMEOUT,
     REMOTE_ACTION_SUCCESS,
+    REMOTE_ACTION_TIMEOUT_DEFAULT,
+    REMOTE_ACTION_TIMEOUT_DOUBLE_START,
+    REMOTE_ACTION_TIMEOUT_NGDC,
     REMOTE_ENGINE_STATUS_MAP,
     RemoteActionStatus,
     RemoteEngineStatus,
@@ -54,6 +59,8 @@ class JPSessionMixin:
             vehicle.uuid = vehicle_baseinfo.get('uuid')
             vehicle.gateway = vehicle_baseinfo.get('gateway')
             vehicle.probe_data = {}
+            vehicle.remote_action_log = []
+            vehicle.action_log_sink = None
             vehicle.subscription_name = None
             vehicle.subscription_end_date = None
             vehicle.remote_lock_entitled = None
@@ -447,7 +454,155 @@ class JPVehicleMixin:
             self.tyre_pressure_last_updated = datetime.datetime.fromisoformat(
                 pressure_data['lastUpdateTime'].replace('Z', '+00:00'))
 
-    def fetch_remote_action_status(self, action_id):
+    # ------------------------------------------------------------------
+    # ヘッダ / タイムアウト (アプリと同じ決め方)
+    # ------------------------------------------------------------------
+
+    def gateway_header(self):
+        """X-Vehicle-Gateway に入れる値。
+
+        アプリは token-info の gateway を VehicleGateway に変換し、toName (0xbdaf64) で
+        "AVN" / "NGDC" / "MOCK" / その他はその名前 に戻して全リクエストに付ける。
+        つまり token-info の gateway 文字列そのまま。無ければ VIN に倒す。
+        """
+        return getattr(self, 'gateway', None) or self.vin
+
+    def remote_action_timeout(self, double_start=False):
+        """結果ポーリングの打ち切り秒数 (RemoteActionTimeoutResolverImpl 0x16d45a8)。"""
+        if (getattr(self, 'gateway', None) or '') == GATEWAY_NGDC:
+            return REMOTE_ACTION_TIMEOUT_NGDC
+        if double_start:
+            return REMOTE_ACTION_TIMEOUT_DOUBLE_START
+        return REMOTE_ACTION_TIMEOUT_DEFAULT
+
+    def app_flag(self, *path):
+        """features の真偽値。bool ならそのまま、{available: bool} ならその値、無ければ None。"""
+        if not getattr(self, 'app_config', None):
+            return None
+        node = self.app_config
+        for key in path:
+            if not isinstance(node, dict) or key not in node:
+                return None
+            node = node[key]
+        if isinstance(node, bool):
+            return node
+        if isinstance(node, dict):
+            value = node.get('available')
+            return bool(value) if value is not None else None
+        return None
+
+    def double_start_available(self):
+        """20分始動をアプリが選択肢として出す条件と同じ。features が無ければ None。"""
+        return self.app_flag(*FEATURE_OPERATION_TIME_SETTING)
+
+    # ------------------------------------------------------------------
+    # 遠隔操作のログ (リクエスト / レスポンス / ポーリングをそのまま残す)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _now():
+        return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds')
+
+    @staticmethod
+    def _loggable_headers(headers):
+        """Authorization だけ伏せる。それ以外はアプリとの照合に必要なのでそのまま。"""
+        result = {}
+        for key, value in (headers or {}).items():
+            result[key] = '***' if key.lower() == 'authorization' else value
+        return result
+
+    def _trace_start(self, name, method, url, headers=None, body=None):
+        trace = {
+            'action': name,
+            'started': self._now(),
+            'request': {
+                'method': method,
+                'url': url,
+                'headers': self._loggable_headers(headers),
+                'body': body,
+            },
+            'response': None,
+            'polls': [],
+            'result': None,
+            'error': None,
+            'finished': None,
+        }
+        log = getattr(self, 'remote_action_log', None)
+        if log is None:
+            log = self.remote_action_log = []
+        log.append(trace)
+        del log[:-REMOTE_ACTION_LOG_MAX]
+        return trace
+
+    @staticmethod
+    def _trace_response(trace, resp, body):
+        trace['response'] = {
+            'status_code': getattr(resp, 'status_code', None),
+            'body': body,
+            'at': JPVehicleMixin._now(),
+        }
+
+    @staticmethod
+    def _trace_poll(trace, body, status=None, error_code=None, exception=None):
+        trace['polls'].append({
+            'at': JPVehicleMixin._now(),
+            'status': status.value if status is not None else None,
+            'error_code': error_code,
+            'body': body,
+            'exception': str(exception) if exception else None,
+        })
+
+    def _trace_finish(self, trace, result, error=None):
+        trace['result'] = result
+        trace['error'] = str(error) if error else None
+        trace['finished'] = self._now()
+        _LOGGER.info("remote action %s -> %s (%d polls)%s",
+                     trace['action'], result, len(trace['polls']),
+                     ' error: {}'.format(error) if error else '')
+        sink = getattr(self, 'action_log_sink', None)
+        if sink is not None:
+            try:
+                sink(trace)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("remote action log sink failed: %s", err)
+
+    def execute_remote_action(self, name, url, body, headers=None, wait=True,
+                              double_start=False):
+        """JP: 遠隔操作の POST → 結果ポーリング。全部をログに残す。
+
+        アプリの順序と同じで、POST の前に他の呼び出しはしない。
+        ヘッダは _request が X-Vehicle-Gateway を足す。
+        """
+        request_headers = {'Content-Type': 'application/vnd.api+json'}
+        request_headers.update(headers or {})
+        request_headers.setdefault('X-Vehicle-Gateway', self.gateway_header())
+        trace = self._trace_start(name, 'POST', url, request_headers, body)
+        try:
+            resp = self._post(url, data=json.dumps(body), headers=request_headers)
+            try:
+                payload = resp.json()
+            except ValueError:
+                payload = {'raw': getattr(resp, 'text', None)}
+            self._trace_response(trace, resp, payload)
+            if 'errors' in payload:
+                raise ValueError(payload['errors'])
+            action_id = self._action_id(payload)
+            if wait:
+                status = self.poll_remote_action(
+                    action_id, timeout=self.remote_action_timeout(double_start), trace=trace)
+                self._trace_finish(trace, status.value if status else 'no-action-id')
+            else:
+                self._trace_finish(trace, 'posted')
+            return payload
+        except Exception as err:
+            self._trace_finish(trace, 'failed', err)
+            raise
+
+    # ------------------------------------------------------------------
+    # 結果ポーリング (alliance/action-status-polling)
+    # ------------------------------------------------------------------
+
+    def fetch_remote_action_status(self, action_id, trace=None):
         """JP: 遠隔操作の結果を一度だけ問い合わせる。"""
         resp = self._get(
             '{}alliance/action-status-polling/v1/cars/{}/actions/status'.format(
@@ -457,36 +612,45 @@ class JPVehicleMixin:
         )
         body = resp.json()
         if 'errors' in body:
+            if trace is not None:
+                self._trace_poll(trace, body, exception=body['errors'])
             raise ValueError(body['errors'])
         attributes = body['data']['attributes']
         raw = attributes.get('status')
         try:
             status = RemoteActionStatus(raw)
         except ValueError:
+            if trace is not None:
+                self._trace_poll(trace, body, exception='unknown status {}'.format(raw))
             raise ValueError('Unknown action status: {}'.format(raw))
         error = attributes.get('error') or {}
+        if trace is not None:
+            self._trace_poll(trace, body, status, error.get('code'))
         return status, error.get('code')
 
-    def poll_remote_action(self, action_id,
-                           timeout=REMOTE_ACTION_POLL_TIMEOUT,
-                           interval=REMOTE_ACTION_POLL_INTERVAL):
+    def poll_remote_action(self, action_id, timeout=None,
+                           interval=REMOTE_ACTION_POLL_INTERVAL, trace=None):
         """JP: アプリと同じく POST の interval 秒後から結果を取りに行く。
 
         成功 (COMPLETED / SYNCHRONIZED) なら status を返す。失敗
         (REJECTED / CANCELLED) なら ValueError。timeout まで決着しなければ
-        最後に見た status をそのまま返す。
+        最後に見た status をそのまま返す。timeout 省略時はゲートウェイで決める。
         """
         if self.session.region != 'JP' or not action_id:
             return None
+        if timeout is None:
+            timeout = self.remote_action_timeout()
 
         status = None
         deadline = time.monotonic() + timeout
         while True:
             time.sleep(interval)
             try:
-                status, error_code = self.fetch_remote_action_status(action_id)
+                status, error_code = self.fetch_remote_action_status(action_id, trace=trace)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("action status poll failed: %s", err)
+                if trace is not None and not (trace['polls'] and trace['polls'][-1].get('exception')):
+                    self._trace_poll(trace, None, exception=err)
                 if time.monotonic() >= deadline:
                     return status
                 continue
@@ -509,3 +673,7 @@ class JPVehicleMixin:
         if not isinstance(body, dict):
             return None
         return (body.get('data') or {}).get('id')
+
+    def last_remote_action_trace(self):
+        log = getattr(self, 'remote_action_log', None) or []
+        return log[-1] if log else None
