@@ -1,0 +1,170 @@
+"""Support for Kamereon cars."""
+import logging
+import asyncio
+
+from homeassistant.components.button import ButtonEntity
+
+from .base import KamereonEntity
+from .kamereon import ChargingStatus, PluggedStatus, Feature, HVACAction, EngineCycleTime
+from .kamereon.kamereon_jp_const import ENGINE_STOP_METHOD_DEFAULT, ENGINE_STOP_METHOD_LEGACY
+from .const import DOMAIN, DATA_VEHICLES, DATA_COORDINATOR_POLL, DATA_COORDINATOR_FETCH, DATA_COORDINATOR_STATISTICS
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(hass, config, async_add_entities):
+    account_id = config.data['email']
+
+    data = hass.data[DOMAIN][account_id][DATA_VEHICLES]
+    coordinator = hass.data[DOMAIN][account_id][DATA_COORDINATOR_POLL]
+    coordinator_fetch = hass.data[DOMAIN][account_id][DATA_COORDINATOR_FETCH]
+    stats_coordinator = hass.data[DOMAIN][account_id][DATA_COORDINATOR_STATISTICS]
+
+    entities = []
+
+    for vehicle in data:
+        entities.append(ForceUpdateButton(coordinator_fetch, data[vehicle], hass, stats_coordinator))
+        if Feature.HORN_AND_LIGHTS in data[vehicle].features:
+            entities += [
+                HornLightsButtons(coordinator, data[vehicle], "flash_lights", "mdi:car-light-high", "lights"),
+                HornLightsButtons(coordinator, data[vehicle], "honk_horn", "mdi:bullhorn", "horn_lights")
+            ]
+        if Feature.CHARGING_START in data[vehicle].features:
+            entities.append(ChargeControlButtons(coordinator, data[vehicle], "charge_start", "mdi:play", "start"))
+        # JP は遠隔解錠のAPIを持たないため、施錠のみをボタンとして提供する
+        if data[vehicle].session.region == 'JP' and Feature.APP_DOOR_LOCKING in data[vehicle].features:
+            entities.append(DoorLockButton(coordinator, data[vehicle]))
+        # JP の ICE 車は温度指定のない単純なリモートエンジンスタートのみ持つ
+        if Feature.REMOTE_ENGINE_START in data[vehicle].features:
+            entities.append(EngineStartButton(coordinator, data[vehicle]))
+            if data[vehicle].session.region == 'JP':
+                entities.append(EngineStopButton(coordinator, data[vehicle]))
+            # 20分始動はアプリでは features の remoteEngineStart.operationTimeSetting が
+            # 真のときだけ選択肢に出る。features が取れていないときは従来どおり出す
+            double_start = data[vehicle].double_start_available()
+            if double_start is None or double_start:
+                entities.append(EngineStartLongButton(coordinator, data[vehicle]))
+            else:
+                _LOGGER.info("%s: remoteEngineStart.operationTimeSetting is off; not adding the 20-minute start button",
+                             data[vehicle].vin)
+
+    async_add_entities(entities, update_before_add=True)
+
+
+class ForceUpdateButton(KamereonEntity, ButtonEntity):
+    _attr_translation_key = "update_data"
+
+    def __init__(self, coordinator, vehicle, hass, stats_coordinator):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+        self._hass = hass
+        self.coordinator_statistics = stats_coordinator
+    
+    @property
+    def icon(self):
+        """Return the icon."""
+        return 'mdi:update'
+
+    async def async_press(self):
+        loop = asyncio.get_running_loop()
+        
+        await loop.run_in_executor(None, self.vehicle.refresh)
+        await self.coordinator.async_refresh()
+
+class HornLightsButtons(KamereonEntity, ButtonEntity):
+    def __init__(self, coordinator, vehicle, translation_key, icon, action):
+        self._attr_translation_key = translation_key
+        self._icon = icon
+        self._action = action
+        KamereonEntity.__init__(self, coordinator, vehicle)
+    
+    @property
+    def icon(self):
+        return self._icon
+
+    def press(self):
+        self.vehicle.control_horn_lights('start', self._action)
+
+class ChargeControlButtons(KamereonEntity, ButtonEntity):
+    def __init__(self, coordinator, vehicle, translation_key, icon, action):
+        self._attr_translation_key = translation_key
+        self._icon = icon
+        self._action = action
+        KamereonEntity.__init__(self, coordinator, vehicle)
+    
+    @property
+    def icon(self):
+        return self._icon
+
+    def press(self):
+        self.vehicle.control_charging(self._action)
+
+class DoorLockButton(KamereonEntity, ButtonEntity):
+    _attr_translation_key = "door_lock"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:lock'
+
+    def press(self):
+        self.vehicle.lock()
+
+class EngineStartButton(KamereonEntity, ButtonEntity):
+    _attr_translation_key = "engine_start"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:engine-outline'
+
+    def press(self):
+        self.vehicle.set_hvac_status(HVACAction.START, cycle_time=EngineCycleTime.NORMAL)
+
+
+class EngineStartLongButton(KamereonEntity, ButtonEntity):
+    """アプリの「長め (2サイクル / 20分)」に相当する遠隔エンジン始動。"""
+
+    _attr_translation_key = "engine_start_long"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:engine-outline'
+
+    def press(self):
+        self.vehicle.set_hvac_status(HVACAction.START, cycle_time=EngineCycleTime.DOUBLE)
+
+
+class EngineStopButton(KamereonEntity, ButtonEntity):
+    """JP: 遠隔エンジン停止。graphql (未確認) を先に試し、失敗したら legacy に落とす。"""
+
+    _attr_translation_key = "engine_stop"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:engine-off-outline'
+
+    def press(self):
+        """エンジンを停止する。
+
+        3.5.0 相当の GraphQL ApplyProcedure(ENGINE_STOP) を先に試す。procedure 名は
+        未確認 (docs/jp_api.md「遠隔操作」) なので、失敗したら
+        legacy 経路 (car-adapter engine-start action=stop、
+        docs/jp_api.md「エンジン停止（旧経路・フォールバック用）」) に落とす。
+        """
+        try:
+            self.vehicle.stop_engine(method=ENGINE_STOP_METHOD_DEFAULT)
+        except Exception as err:  # noqa: BLE001
+            # graphql の procedure 名が未確認のため、失敗は想定内。legacy で再試行する
+            _LOGGER.warning("engine stop via %s failed (%s); retrying with legacy",
+                            ENGINE_STOP_METHOD_DEFAULT, err)
+            self.vehicle.stop_engine(method=ENGINE_STOP_METHOD_LEGACY)

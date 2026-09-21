@@ -1,0 +1,19 @@
+# このファイルのカレントディレクトリは".devcontainer/"
+# version:はCompose v2以降では不要(指定すると警告が出る)
+services:
+  workspace:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    working_dir: /workspaces
+    init: true
+    tty: true
+    volumes:
+      - ../:/workspaces:cached
+      # Claude Code の設定・認証情報をコンテナ再作成後も保持する
+      - claude-config:/home/vscode/.claude
+    command: sleep infinity
+
+volumes:
+  claude-config:
+    driver: local
