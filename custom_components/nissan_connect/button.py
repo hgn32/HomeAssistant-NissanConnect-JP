@@ -5,7 +5,7 @@ import asyncio
 from homeassistant.components.button import ButtonEntity
 
 from .base import KamereonEntity
-from .kamereon import ChargingStatus, PluggedStatus, Feature
+from .kamereon import ChargingStatus, PluggedStatus, Feature, HVACAction, EngineCycleTime
 from .const import DOMAIN, DATA_VEHICLES, DATA_COORDINATOR_POLL, DATA_COORDINATOR_FETCH, DATA_COORDINATOR_STATISTICS
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,6 +30,20 @@ async def async_setup_entry(hass, config, async_add_entities):
             ]
         if Feature.CHARGING_START in data[vehicle].features:
             entities.append(ChargeControlButtons(coordinator, data[vehicle], "charge_start", "mdi:play", "start"))
+        # JP は遠隔解錠のAPIを持たないため、施錠のみをボタンとして提供する
+        if Feature.APP_DOOR_LOCKING in data[vehicle].features:
+            entities.append(DoorLockButton(coordinator, data[vehicle]))
+        # JP の ICE 車は温度指定のない単純なリモートエンジンスタートのみ持つ
+        if Feature.REMOTE_ENGINE_START in data[vehicle].features:
+            entities.append(EngineStartButton(coordinator, data[vehicle]))
+            entities.append(EngineStopButton(coordinator, data[vehicle]))
+            # 20分始動はアプリでは features の remoteEngineStart.operationTimeSetting が
+            # 真のときだけ選択肢に出る。features が取れていないときは従来どおり出す
+            double_start = data[vehicle].double_start_available()
+            if double_start is None or double_start:
+                entities.append(EngineStartLongButton(coordinator, data[vehicle]))
+            else:
+                _LOGGER.debug("remoteEngineStart.operationTimeSetting is off; not adding the 20-minute start button")
 
     async_add_entities(entities, update_before_add=True)
 
@@ -81,3 +95,65 @@ class ChargeControlButtons(KamereonEntity, ButtonEntity):
     def press(self):
         self.vehicle.control_charging(self._action)
 
+class DoorLockButton(KamereonEntity, ButtonEntity):
+    _attr_translation_key = "door_lock"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:lock'
+
+    def press(self):
+        self.vehicle.lock()
+
+class EngineStartButton(KamereonEntity, ButtonEntity):
+    _attr_translation_key = "engine_start"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:engine-outline'
+
+    def press(self):
+        self.vehicle.set_hvac_status(HVACAction.START, cycle_time=EngineCycleTime.NORMAL)
+
+
+class EngineStartLongButton(KamereonEntity, ButtonEntity):
+    """アプリの「長め (2サイクル / 20分)」に相当する遠隔エンジン始動。"""
+
+    _attr_translation_key = "engine_start_long"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:engine-outline'
+
+    def press(self):
+        self.vehicle.set_hvac_status(HVACAction.START, cycle_time=EngineCycleTime.DOUBLE)
+
+
+class EngineStopButton(KamereonEntity, ButtonEntity):
+    """JP: 遠隔エンジン停止。"""
+
+    _attr_translation_key = "engine_stop"
+
+    def __init__(self, coordinator, vehicle):
+        KamereonEntity.__init__(self, coordinator, vehicle)
+
+    @property
+    def icon(self):
+        return 'mdi:engine-off-outline'
+
+    def press(self):
+        """エンジンを停止する。
+
+        GraphQL ApplyProcedure(ENGINE_STOP) を送る (docs/jp_api.md「遠隔操作」、
+        2026-09-23 に実車で確認済み)。
+        """
+        self.vehicle.stop_engine()

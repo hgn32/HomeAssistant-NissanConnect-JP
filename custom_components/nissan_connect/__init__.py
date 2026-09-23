@@ -1,6 +1,10 @@
+import json
 import logging
 from datetime import timedelta
+
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from .kamereon import NCISession
+from .kamereon.kamereon_jp_const import REMOTE_ACTION_LOG_FILE
 from .coordinator import KamereonFetchCoordinator, KamereonPollCoordinator, StatisticsCoordinator
 from .const import *
 
@@ -9,6 +13,25 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass, config) -> bool:
     return True
+
+
+def _remote_action_log_sink(hass):
+    """遠隔操作の記録を JSON Lines として HA の設定ディレクトリ直下に追記する。
+
+    ログレベルや再起動に関係なく残す。遠隔操作は executor スレッドで動くので
+    同期のファイル書き込みでよい。失敗しても遠隔操作自体は止めない。
+    """
+    remote_path = hass.config.path(REMOTE_ACTION_LOG_FILE)
+
+    def sink(trace):
+        line = json.dumps(trace, ensure_ascii=False, default=str) + '\n'
+        try:
+            with open(remote_path, 'a', encoding='utf-8') as handle:
+                handle.write(line)
+        except OSError as err:
+            _LOGGER.warning("Could not write remote-action log to %s: %s", remote_path, err)
+
+    return sink
 
 
 async def async_update_listener(hass, entry):
@@ -50,13 +73,22 @@ async def async_setup_entry(hass, entry):
     }
 
     _LOGGER.info("Logging in to service")
-    await hass.async_add_executor_job(kamereon_session.login,
-                                      config.get("email"),
-                                      config.get("password")
-                                      )
+    try:
+        await hass.async_add_executor_job(kamereon_session.login,
+                                          config.get("email"),
+                                          config.get("password")
+                                          )
+    except Exception as err:
+        # 資格情報が拒否された場合のみ再認証を促し、それ以外
+        # (サービス側の障害など) は Home Assistant に再試行させる
+        if "Invalid credentials" in str(err):
+            raise ConfigEntryAuthFailed(str(err)) from err
+        raise ConfigEntryNotReady(
+            "NissanConnect login failed: {}".format(err)) from err
 
     _LOGGER.debug("Finding vehicles")
     for vehicle in await hass.async_add_executor_job(kamereon_session.fetch_vehicles):
+        vehicle.action_log_sink = _remote_action_log_sink(hass)
         await hass.async_add_executor_job(vehicle.fetch_all)
         if vehicle.vin not in data[DATA_VEHICLES]:
             data[DATA_VEHICLES][vehicle.vin] = vehicle

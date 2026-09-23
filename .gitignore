@@ -1,1 +1,11 @@
-__pycache__
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.coverage
+htmlcov/
+*.egg-info/
+.DS_Store
+.mcp.json
+tmp/

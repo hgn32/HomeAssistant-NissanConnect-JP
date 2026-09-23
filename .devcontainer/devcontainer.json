@@ -1,0 +1,38 @@
+{
+	"name": "NissanConnect [JP] (Python 3.11 / Home Assistant)",
+	"dockerComposeFile": [
+		"docker-compose.yml"
+	],
+	"service": "workspace",
+	"workspaceFolder": "/workspaces",
+
+	// Python 公式 devcontainer イメージの標準ユーザー (UID 1000 / GID 1000)。
+	"remoteUser": "vscode",
+
+	"shutdownAction": "stopCompose",
+
+	// テスト依存 (pytest-homeassistant-custom-component など) をユーザーサイトへ入れる。
+	// ホスト側 (Windows) の .venv と衝突させないため、コンテナ内では venv を作らない。
+	"postCreateCommand": "pip install --user -r requirements.test.txt",
+
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"terminal.integrated.defaultProfile.linux": "bash",
+				"python.defaultInterpreterPath": "/usr/local/bin/python",
+				"python.testing.pytestEnabled": true,
+				"python.testing.unittestEnabled": false,
+				"python.testing.pytestArgs": [
+					"tests"
+				],
+				"files.eol": "\n"
+			},
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"bierner.markdown-mermaid",
+				"Anthropic.claude-code"
+			]
+		}
+	}
+}

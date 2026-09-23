@@ -1,94 +1,95 @@
-# NissanConnect for Home Assistant
+# NissanConnect [JP] for Home Assistant
 
-An unofficial integration for interacting with NissanConnect vehicles in Europe. Based on the work of [mitchellrj](https://github.com/mitchellrj/kamereon-python) and [tobiaswk](https://github.com/Tobiaswk/dartnissanconnect). I have no affiliation with Nissan besides owning one of their cars.
+An unofficial Home Assistant integration for Nissan vehicles in Japan, using the
+MyNISSAN app's backend.
 
-_Please note this integration is only for vehicles using the NissanConnect Services app, not NissanConnect EV or any other app._
+A fork of [dan-r/HomeAssistant-NissanConnect](https://github.com/dan-r/HomeAssistant-NissanConnect),
+rewritten for the Japanese backend. The JP API is a different system to the
+European one, so the login flow, remote actions and entity set have been
+replaced rather than extended. Original work by
+[mitchellrj](https://github.com/mitchellrj/kamereon-python) and
+[tobiaswk](https://github.com/Tobiaswk/dartnissanconnect).
 
-If you find any bugs or would like to request a feature, please open an issue.
+No affiliation with Nissan.
+
+## Scope
+
+- **Japan only.** The upstream European backend and region selector have been
+  removed; this integration only talks to the JP API.
+- Petrol and hybrid cars. EV entities (charging, battery) are inherited from
+  upstream and untested against the JP backend.
 
 ## Tested Vehicles
-This integration has been tested with the following vehicles:
-* Nissan Leaf (2022) [@dan-r]
-* Nissan Qashqai (2021) 
-* Nissan Ariya
-* Nissan X-Trail (2024)
-* Nissan Juke (2021)
 
-## Supported Regions
-* Europe
+- Nissan Note (E13, 2021)
 
-Currently only Nissan vehicles within Europe are supported.
+## Requirements
 
-### North America
-The API used in North America is completely separate to Europe and it appears that Nissan USA are [a lot more hostile](https://tobis.dk/blog/the-farce-of-nissanconnect-north-america/) towards third-party access. Any future US support would rely on library support (such as [dartnissanconnectna](https://gitlab.com/tobiaswkjeldsen/dartnissanconnectna)) or someone in North America maintaining that side of things. If you're interested, get in touch!
+- Home Assistant 2023.11.0 or newer
+- A MyNISSAN account with an active NissanConnect subscription
 
 ## Installation
 
 ### HACS
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dan-r&repository=HomeAssistant-NissanConnect&category=integration)
-
-This is the recommended installation method.
-1. Search for and install the **NissanConnect [EU]** integration from HACS
-2. Restart Home Assistant
+Add `hgn32/HomeAssistant-NissanConnect-JP` as a custom repository in HACS,
+install **NissanConnect [JP]**, then restart Home Assistant.
 
 ### Manual
-1. Download the [latest release](https://github.com/dan-r/HomeAssistant-NissanConnect/releases)
-2. Copy the contents of `custom_components` into the `<config directory>/custom_components` directory of your Home Assistant installation
-3. Restart Home Assistant
 
+Copy `custom_components/nissan_connect` into your Home Assistant
+`config/custom_components/` directory and restart.
 
 ## Setup
-From the Home Assistant Integrations page, search for and add the Nissan Connect integration.
 
-## Update Time
-Terminology used for this integration:
-* Polling - the car is woken up and new status is reported
-* Update - data is fetched from Nissan but the car is not woken up
-
-Following the model of leaf2mqtt, this integration can be set to use a different update time when plugged in. When HVAC is turned on the update time drops to once per minute.
-
-To prevent excessive 12v battery drain when plugged in but not charging for extended periods of time, the interval reverts to the standard update interval after 4 consecutive updates show the car as plugged in but not charging.
-This logic was added to give the benefit of quicker response times on the charging status binary sensor, which can be especially useful when charging with load-balanced or 'smart' chargers.
-
-## Translations
-Translations are provided for the following languages. If you are a native speaker and spot any mistakes, please let me know.
-* English
-* Danish
-* Dutch
-* French
-* German
-* Italian
-* Norwegian
-* Polish
-* Portuguese
-* Russian
-* Spanish
+Add the integration from Settings → Devices & Services, and sign in with the ID
+and password you use in the MyNISSAN app.
 
 ## Entities
-This integration exposes the following entities. Please note that entities will only be shown if the functionality is supported by your car.
 
-* Binary Sensors
-    * Car Plugged In (EV Only)
-    * Car Charging (EV Only)
-    * Doors Locked
-* Sensors
-    * Battery Level
-    * Charge Time
-    * Internal Temperature
-    * External Temperature
-    * Range (EV Only)
-    * Odometer
-    * Daily Distance
-    * Daily Trips
-    * Daily Efficiency (EV Only)
-    * Monthly Distance
-    * Monthly Trips
-    * Monthly Efficiency (EV Only)
-* Climate
-* Device Tracker
-* Buttons
-    * Update Data
-    * Flash Lights
-    * Honk Horn
-    * Start Charge
+Entities appear only if the car reports the matching capability.
+
+**Buttons**
+
+- Start Engine
+- Stop Engine
+- Lock Doors
+- Update Data
+
+**Sensors**
+
+- Odometer
+- Fuel Autonomy, Fuel Quantity
+- Remote Engine State (raw value exposed as an attribute)
+- Location Last Updated, Lock Status Last Updated
+- Subscription Plan, Subscription End Date
+- Daily / Monthly Distance and Trips
+
+**Binary sensors**
+
+- Doors Locked, Doors Open
+- Warning lights: ABS, Airbag, Brake, Engine, Oil Pressure
+
+**Device tracker**
+
+- Location
+
+## Polling
+
+Two intervals are configurable: a polling interval that wakes the car and
+fetches fresh status, and an update interval that reads the data Nissan already
+holds without waking the car.
+
+## API
+
+The endpoints this integration calls are listed in [docs/jp_api.md](docs/jp_api.md).
+Remote actions use the app's GraphQL `ApplyProcedure` mutation.
+
+## Translations
+
+English and Japanese are maintained. The other languages are inherited from
+upstream and may be missing JP-specific entity names.
+
+## Issues
+
+Please open an issue on this repository, not upstream.
