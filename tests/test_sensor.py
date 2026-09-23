@@ -15,6 +15,7 @@ from custom_components.nissan_connect.sensor import (
     ChargeTimeRequiredSensor,
     TimestampSensor,
     GenericAttributeSensor,
+    RemoteEngineStatusSensor,
     async_setup_entry
 )
 
@@ -167,8 +168,46 @@ def test_timestamp_sensor(mock_hass):
 
 def test_generic_attribute_sensor(mock_hass):
     vehicle = mock_hass.data['nissan_connect']['test_account']['vehicles']['test_vehicle']
-    vehicle.remote_engine_status = 3
+    vehicle.battery_temperature = 3
     coordinator = mock_hass.data['nissan_connect']['test_account']['coordinator_fetch']
-    sensor = GenericAttributeSensor(coordinator, vehicle, 'remote_engine_status', 'remote_engine_status', 'mdi:engine')
+    sensor = GenericAttributeSensor(coordinator, vehicle, 'battery_temperature', 'battery_temperature', 'mdi:thermometer-alert')
     assert sensor.native_value == 3
+    assert sensor.icon == 'mdi:thermometer-alert'
+
+
+def test_remote_engine_status_sensor(mock_hass):
+    """native_value は意味のある文字列、extra_state_attributes['raw'] は生値であること。"""
+    vehicle = mock_hass.data['nissan_connect']['test_account']['vehicles']['test_vehicle']
+    vehicle.remote_engine_status = 6
+    vehicle.remote_engine_status_text = 'readyForRemoteStart'
+    coordinator = mock_hass.data['nissan_connect']['test_account']['coordinator_fetch']
+
+    sensor = RemoteEngineStatusSensor(coordinator, vehicle)
+
+    assert sensor.native_value == 'readyForRemoteStart'
+    assert sensor.extra_state_attributes == {'raw': 6}
     assert sensor.icon == 'mdi:engine'
+    assert sensor._attr_device_class == SensorDeviceClass.ENUM
+    assert 'readyForRemoteStart' in sensor._attr_options
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_remote_engine_status_single_sensor(mock_hass, mock_config, mock_async_add_entities):
+    """remote_engine_status / remote_engine_status_text は 1 つのセンサーに統合されていること。"""
+    vehicle = mock_hass.data['nissan_connect']['test_account']['vehicles']['test_vehicle']
+    vehicle.remote_engine_status = 6
+    vehicle.remote_engine_status_text = 'readyForRemoteStart'
+
+    await async_setup_entry(mock_hass, mock_config, mock_async_add_entities)
+
+    entities = mock_async_add_entities.call_args[0][0]
+    remote_engine_sensors = [entity for entity in entities if isinstance(entity, RemoteEngineStatusSensor)]
+    assert len(remote_engine_sensors) == 1
+    assert not any(
+        isinstance(entity, GenericAttributeSensor) and entity._attribute == 'remote_engine_status'
+        for entity in entities
+    )
+    assert not any(
+        isinstance(entity, GenericAttributeSensor) and entity._attribute == 'remote_engine_status_text'
+        for entity in entities
+    )

@@ -12,5 +12,5 @@
     "requests",
     "requests_oauthlib"
   ],
-  "version": "1.6.31"
+  "version": "1.6.32"
 }

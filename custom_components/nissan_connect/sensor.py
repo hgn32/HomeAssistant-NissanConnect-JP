@@ -11,6 +11,7 @@ from homeassistant.const import PERCENTAGE, UnitOfLength, UnitOfTime, UnitOfPowe
 from homeassistant.components.sensor import SensorStateClass
 from .base import KamereonEntity
 from .kamereon import ChargingSpeed, Feature
+from .kamereon.kamereon_jp_const import RemoteEngineStatus
 from .const import DOMAIN, DATA_VEHICLES, DATA_COORDINATOR_FETCH, DATA_COORDINATOR_STATISTICS
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,10 +66,8 @@ async def async_setup_entry(hass, config, async_add_entities):
 
         entities.append(OdometerSensor(coordinator, data[vehicle], imperial_distance))
 
-        if data[vehicle].remote_engine_status is not None:
-            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'remote_engine_status', 'remote_engine_status', 'mdi:engine'))
         if data[vehicle].remote_engine_status_text is not None:
-            entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'remote_engine_status_text', 'remote_engine_status_text', 'mdi:engine-outline'))
+            entities.append(RemoteEngineStatusSensor(coordinator, data[vehicle]))
         if data[vehicle].remote_engine_error_status is not None:
             entities.append(GenericAttributeSensor(coordinator, data[vehicle], 'remote_engine_error_status', 'remote_engine_error_status', 'mdi:engine-off-outline', entity_category=EntityCategory.DIAGNOSTIC))
         if data[vehicle].engine_cycle_remaining_time is not None:
@@ -371,6 +370,29 @@ class GenericAttributeSensor(KamereonEntity, SensorEntity):
     def icon(self):
         """Icon of the sensor."""
         return self._icon
+
+
+class RemoteEngineStatusSensor(KamereonEntity, SensorEntity):
+    """遠隔エンジン状態。意味のある文字列を state にし、生値 (raw) は属性に出す。"""
+
+    _attr_translation_key = "remote_engine_status"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [status.value for status in RemoteEngineStatus]
+
+    @property
+    def icon(self):
+        """Icon of the sensor."""
+        return "mdi:engine"
+
+    @property
+    def native_value(self):
+        """Return the state."""
+        return self.vehicle.remote_engine_status_text
+
+    @property
+    def extra_state_attributes(self):
+        """Attributes of the sensor."""
+        return {'raw': self.vehicle.remote_engine_status}
 
 
 class DateSensor(KamereonEntity, SensorEntity):

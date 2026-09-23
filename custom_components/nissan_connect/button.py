@@ -44,8 +44,7 @@ async def async_setup_entry(hass, config, async_add_entities):
             if double_start is None or double_start:
                 entities.append(EngineStartLongButton(coordinator, data[vehicle]))
             else:
-                _LOGGER.info("%s: remoteEngineStart.operationTimeSetting is off; not adding the 20-minute start button",
-                             data[vehicle].vin)
+                _LOGGER.debug("remoteEngineStart.operationTimeSetting is off; not adding the 20-minute start button")
 
     async_add_entities(entities, update_before_add=True)
 

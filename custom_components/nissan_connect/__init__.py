@@ -1,11 +1,10 @@
 import json
 import logging
-import os
 from datetime import timedelta
 
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from .kamereon import NCISession
-from .kamereon.kamereon_jp_const import REMOTE_ACTION_LOG_FILE, REMOTE_ACTION_LOG_LOCAL_DIR
+from .kamereon.kamereon_jp_const import REMOTE_ACTION_LOG_FILE
 from .coordinator import KamereonFetchCoordinator, KamereonPollCoordinator, StatisticsCoordinator
 from .const import *
 
@@ -17,40 +16,20 @@ async def async_setup(hass, config) -> bool:
 
 
 def _remote_action_log_sink(hass):
-    """遠隔操作の記録を JSON Lines として 2 か所に追記する。
+    """遠隔操作の記録を JSON Lines として HA の設定ディレクトリ直下に追記する。
 
     ログレベルや再起動に関係なく残す。遠隔操作は executor スレッドで動くので
-    同期のファイル書き込みでよい。
-
-    書き込み先は次の 2 つ:
-      1. HA の設定ディレクトリ直下 (従来どおり)
-      2. 統合パッケージ自身のディレクトリ配下 (`tmp/`)
-
-    2 番目は、HA ホストにシェルが無く MCP のファイル読み取りが統合ディレクトリ配下
-    しか許可されていないための複製で、開発者専用リポジトリでの運用にのみ意味がある
-    (このリポジトリのディレクトリは開発リポジトリへの symlink になっている)。
-    片方の書き込みに失敗しても、もう片方は書く。失敗しても遠隔操作自体は止めない。
+    同期のファイル書き込みでよい。失敗しても遠隔操作自体は止めない。
     """
     remote_path = hass.config.path(REMOTE_ACTION_LOG_FILE)
 
-    local_dir = os.path.join(os.path.dirname(__file__), REMOTE_ACTION_LOG_LOCAL_DIR)
-    try:
-        os.makedirs(local_dir, exist_ok=True)
-        local_path = os.path.join(local_dir, REMOTE_ACTION_LOG_FILE)
-    except OSError as err:
-        _LOGGER.warning("Could not prepare local remote-action log dir %s: %s", local_dir, err)
-        local_path = None
-
     def sink(trace):
         line = json.dumps(trace, ensure_ascii=False, default=str) + '\n'
-        for path in (remote_path, local_path):
-            if path is None:
-                continue
-            try:
-                with open(path, 'a', encoding='utf-8') as handle:
-                    handle.write(line)
-            except OSError as err:
-                _LOGGER.warning("Could not write remote-action log to %s: %s", path, err)
+        try:
+            with open(remote_path, 'a', encoding='utf-8') as handle:
+                handle.write(line)
+        except OSError as err:
+            _LOGGER.warning("Could not write remote-action log to %s: %s", remote_path, err)
 
     return sink
 
@@ -111,8 +90,6 @@ async def async_setup_entry(hass, entry):
     for vehicle in await hass.async_add_executor_job(kamereon_session.fetch_vehicles):
         if config["region"] == 'JP':
             vehicle.action_log_sink = _remote_action_log_sink(hass)
-            _LOGGER.info("%s: gateway=%s remoteEngineStart=%s", vehicle.vin, vehicle.gateway,
-                         (vehicle.app_config or {}).get('remoteEngineStart'))
         await hass.async_add_executor_job(vehicle.fetch_all)
         if vehicle.vin not in data[DATA_VEHICLES]:
             data[DATA_VEHICLES][vehicle.vin] = vehicle

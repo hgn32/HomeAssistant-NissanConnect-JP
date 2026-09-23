@@ -9,4 +9,3 @@ htmlcov/
 .DS_Store
 .mcp.json
 tmp/
-custom_components/nissan_connect/tmp/

@@ -96,11 +96,6 @@ GATEWAY_NGDC = 'NGDC'
 REMOTE_ACTION_LOG_MAX = 20
 REMOTE_ACTION_LOG_FILE = 'nissan_connect_remote_actions.jsonl'
 
-# HA ホストにシェルが無く、MCP のファイル読み取りは統合ディレクトリ配下しか許可されて
-# いないため、遠隔操作ログは HA の設定ディレクトリに加えてこのディレクトリ (統合パッケージ
-# 自身の下) にも複製する。開発者専用リポジトリでの運用 (このリポジトリは配布物ではない)。
-REMOTE_ACTION_LOG_LOCAL_DIR = 'tmp'
-
 # 20分始動 (doubleStart) をアプリが出す条件:
 #   features の remoteEngineStart.operationTimeSetting
 #   (EngineStartConfig.isOperationTimeSettingAvailable 0x114f514 → 確認ダイアログの選択肢)

@@ -331,7 +331,9 @@ class KamereonSession(JPSessionMixin):
         oauth_data = resp.json()
 
         if 'realm' not in oauth_data:
-            _LOGGER.error("Invalid credentials provided: %s", resp.text)
+            # 応答本文はトークン等を含みうるのでログに出さない。返ってきたキーだけ残す
+            _LOGGER.error("Invalid credentials provided (response keys: %s)",
+                          sorted(oauth_data) if isinstance(oauth_data, dict) else type(oauth_data).__name__)
             raise RuntimeError("Invalid credentials")
         
         oauth_authorize_url = '{}oauth2{}/authorize'.format(

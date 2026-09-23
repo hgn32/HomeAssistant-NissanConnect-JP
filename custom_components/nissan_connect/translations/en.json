@@ -186,7 +186,16 @@
         "name": "Monthly Trips"
       },
       "remote_engine_status": {
-        "name": "Remote engine status (raw)"
+        "name": "Remote engine state",
+        "state": {
+          "unavailable": "Unavailable",
+          "remoteStartNotAllowed": "Remote start not allowed",
+          "readyForRemoteStart": "Ready for remote start",
+          "manuallyStarted": "Manually started",
+          "remotelyStarted": "Remotely started",
+          "remoteStartNotSupported": "Remote start not supported",
+          "unknown": "Unknown"
+        }
       },
       "battery_temperature": {
         "name": "Battery Temperature"
@@ -235,9 +244,6 @@
       },
       "privacy_mode": {
         "name": "Privacy Mode"
-      },
-      "remote_engine_status_text": {
-        "name": "Remote engine state"
       },
       "remote_engine_error_status": {
         "name": "Remote engine error"

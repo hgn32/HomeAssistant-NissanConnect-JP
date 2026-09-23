@@ -302,11 +302,6 @@ class JPSessionMixin:
         claims['token_type'] = attributes.get('token_type')
         claims['expires_in'] = attributes.get('expires_in')
         self.token_claims = claims
-        _LOGGER.info(
-            "Login token claims (redacted): access_token keys=%s id_token keys=%s",
-            sorted((claims['access_token'] or {}).keys()),
-            sorted((claims['id_token'] or {}).keys()),
-        )
 
 class JPVehicleMixin:
     """Vehicle の JP 用部分。"""

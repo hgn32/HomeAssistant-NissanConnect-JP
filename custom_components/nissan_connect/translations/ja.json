@@ -183,7 +183,16 @@
         "name": "今月のトリップ数"
       },
       "remote_engine_status": {
-        "name": "リモートエンジン状態 (生値)"
+        "name": "遠隔エンジン状態",
+        "state": {
+          "unavailable": "利用不可",
+          "remoteStartNotAllowed": "始動不可",
+          "readyForRemoteStart": "始動可能",
+          "manuallyStarted": "手動始動中",
+          "remotelyStarted": "遠隔始動中",
+          "remoteStartNotSupported": "非対応",
+          "unknown": "不明"
+        }
       },
       "battery_temperature": {
         "name": "バッテリー温度"
@@ -232,9 +241,6 @@
       },
       "privacy_mode": {
         "name": "プライバシーモード"
-      },
-      "remote_engine_status_text": {
-        "name": "遠隔エンジン状態"
       },
       "remote_engine_error_status": {
         "name": "遠隔エンジンエラー"

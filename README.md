@@ -60,7 +60,7 @@ Entities appear only if the car reports the matching capability.
 
 - Odometer
 - Fuel Autonomy, Fuel Quantity
-- Remote Engine Status (raw) and Remote Engine State
+- Remote Engine State (raw value exposed as an attribute)
 - Location Last Updated, Lock Status Last Updated
 - Subscription Plan, Subscription End Date
 - Daily / Monthly Distance and Trips
