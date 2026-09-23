@@ -14,8 +14,8 @@ No affiliation with Nissan.
 
 ## Scope
 
-- **Japan only.** The upstream European code is still present and the region
-  selector still lists EU, but only the JP path is developed or tested.
+- **Japan only.** The upstream European backend and region selector have been
+  removed; this integration only talks to the JP API.
 - Petrol and hybrid cars. EV entities (charging, battery) are inherited from
   upstream and untested against the JP backend.
 

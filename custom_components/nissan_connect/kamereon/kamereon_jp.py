@@ -1,7 +1,7 @@
 """JP (NissanConnect / MyNISSAN アプリ) 固有の取得・遠隔操作。
 
-アプリ MyNISSAN 3.4.0 の挙動に合わせてある。EU 側と共通の処理は
-kamereon.py に残し、こちらは JP でしか使わないものだけを持つ。
+アプリ MyNISSAN 3.4.0 の挙動に合わせてある。この統合は JP 専用であり、
+共通処理は kamereon.py に、JP でしか使わないものはこちらに置く。
 """
 import base64
 import binascii
@@ -313,8 +313,6 @@ class JPVehicleMixin:
         これを呼んでから dashboard の取得を始める。対応していない車両では
         エラーを返すだけなので、失敗しても後続の取得は止めない。
         """
-        if self.session.region != 'JP':
-            return
         try:
             resp = self._post(
                 '{}v1/cars/{}/actions/wake-up-vehicle'.format(
@@ -336,8 +334,6 @@ class JPVehicleMixin:
 
         JP 側に取得を足すときはここに追加する (kamereon.py は触らない)。
         """
-        if self.session.region != 'JP':
-            return
         self.fetch_engine_status()
         self.fetch_probes()
 
@@ -348,8 +344,6 @@ class JPVehicleMixin:
         毎サイクル叩くと無駄なので、値を持っていない最初の 1 回だけ実行する
         (統合をリロードすればやり直す)。
         """
-        if self.session.region != 'JP':
-            return
         if getattr(self, 'probe_data', None):
             return
         self.probe_data = {}
@@ -478,8 +472,6 @@ class JPVehicleMixin:
 
     def fetch_engine_status(self):
         """JP: res-state。アプリはダッシュボードで hvac-status と一緒に叩く。"""
-        if self.session.region != 'JP':
-            return
         if Feature.REMOTE_ENGINE_START not in self.features:
             return
 
@@ -626,8 +618,6 @@ class JPVehicleMixin:
 
         アプリもダッシュボードで同じ GET をしている。失敗しても操作は止めない。
         """
-        if self.session.region != 'JP':
-            return None
         try:
             resp = self._get(
                 '{}v2/cars/{}/res-state'.format(
@@ -806,7 +796,7 @@ class JPVehicleMixin:
         返す。timeout まで決着しなければ最後に見た status をそのまま返す。
         timeout 省略時はゲートウェイで決める。
         """
-        if self.session.region != 'JP' or not action_id:
+        if not action_id:
             return None
         if timeout is None:
             timeout = self.remote_action_timeout()

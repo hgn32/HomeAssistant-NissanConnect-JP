@@ -112,27 +112,6 @@ async def test_async_setup_entry_with_door_lock_jp(mock_config, mock_async_add_e
     assert any(isinstance(e, DoorLockButton) for e in entities)
 
 
-@pytest.mark.asyncio
-async def test_async_setup_entry_skips_door_lock_eu(mock_config, mock_async_add_entities):
-    hass = MagicMock()
-    vehicle = MagicMock(features=[Feature.APP_DOOR_LOCKING])
-    vehicle.session.region = 'EU'
-    hass.data = {
-        DOMAIN: {
-            'test_account': {
-                DATA_VEHICLES: {'vehicle_1': vehicle},
-                DATA_COORDINATOR_POLL: MagicMock(),
-                DATA_COORDINATOR_FETCH: MagicMock(),
-                DATA_COORDINATOR_STATISTICS: MagicMock(),
-            }
-        }
-    }
-
-    await async_setup_entry(hass, mock_config, mock_async_add_entities)
-    entities = mock_async_add_entities.call_args[0][0]
-    assert not any(isinstance(e, DoorLockButton) for e in entities)
-
-
 def test_door_lock_button():
     coordinator = MagicMock()
     vehicle = MagicMock()
@@ -213,29 +192,6 @@ async def test_async_setup_entry_no_extra_buttons_for_jp_engine_start(mock_confi
         if isinstance(e, (EngineStartButton, EngineStartLongButton, EngineStopButton))
     ]
     assert len(engine_related) == 3
-
-
-@pytest.mark.asyncio
-async def test_async_setup_entry_skips_engine_stop_for_eu(mock_config, mock_async_add_entities):
-    """EU は REMOTE_ENGINE_START があってもエンジン停止ボタンを出さない (JP 固有機能)。"""
-    hass = MagicMock()
-    vehicle = MagicMock(features=[Feature.REMOTE_ENGINE_START])
-    vehicle.session.region = 'EU'
-    vehicle.double_start_available.return_value = None
-    hass.data = {
-        DOMAIN: {
-            'test_account': {
-                DATA_VEHICLES: {'vehicle_1': vehicle},
-                DATA_COORDINATOR_POLL: MagicMock(),
-                DATA_COORDINATOR_FETCH: MagicMock(),
-                DATA_COORDINATOR_STATISTICS: MagicMock(),
-            }
-        }
-    }
-
-    await async_setup_entry(hass, mock_config, mock_async_add_entities)
-    entities = mock_async_add_entities.call_args[0][0]
-    assert not any(isinstance(e, EngineStopButton) for e in entities)
 
 
 def test_engine_stop_button_calls_stop_engine():

@@ -65,7 +65,6 @@ async def test_step_user_submit(hass, mock_kamereon_session):
         {
             "email": "test@example.com",
             "password": "password123",
-            "region": DEFAULT_REGION.lower(),
             "imperial_distance": False
         }
     )
@@ -92,7 +91,6 @@ async def test_step_user_invalid_auth(hass, mock_kamereon_session):
         {
             "email": "test@example.com",
             "password": "wrongpassword",
-            "region": DEFAULT_REGION.lower(),
             "imperial_distance": False
         }
     )

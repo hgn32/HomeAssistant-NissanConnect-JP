@@ -28,7 +28,7 @@
 
 ## API クライアント層（`custom_components/nissan_connect/kamereon/`）
 
-- EU/JP 共通の処理は `kamereon.py`、**JP 固有の処理は `kamereon_jp.py`（Mixin）に閉じる**。共通コードへの JP 分岐は最小限にし、`session.region == 'JP'` または `Feature` の有無で判定する。
+- この統合は JP 専用。共通処理は `kamereon.py`、**JP 固有の処理は `kamereon_jp.py`（Mixin）に閉じる**。車種ごとの機能差は `Feature` の有無で判定する（`session.region` による分岐は使わない）。
 - 定数・Enum は `kamereon_const.py`（共通）/ `kamereon_jp_const.py`（JP）に置く。エンドポイントの文字列・状態値・タイムアウト秒数をメソッド内に直書きしない。
 - JP の API 仕様（エンドポイント・パラメータ・状態値）を変えるときは `docs/jp_api.md` の記載を根拠にし、根拠の節（例: 「遠隔操作」「結果ポーリング」）をコメントかコミット説明に書く。未確認の推測でコードを変える場合はコメントで「未確認」と明記する。
 - 遠隔操作（remote-action）は「投げる → 結果をポーリングする」の 2 段構え。タイムアウトと失敗ステータスの扱いは既存の `REMOTE_ACTION_*` 定数に従う。

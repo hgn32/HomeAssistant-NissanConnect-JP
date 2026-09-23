@@ -31,13 +31,12 @@ async def async_setup_entry(hass, config, async_add_entities):
         if Feature.CHARGING_START in data[vehicle].features:
             entities.append(ChargeControlButtons(coordinator, data[vehicle], "charge_start", "mdi:play", "start"))
         # JP は遠隔解錠のAPIを持たないため、施錠のみをボタンとして提供する
-        if data[vehicle].session.region == 'JP' and Feature.APP_DOOR_LOCKING in data[vehicle].features:
+        if Feature.APP_DOOR_LOCKING in data[vehicle].features:
             entities.append(DoorLockButton(coordinator, data[vehicle]))
         # JP の ICE 車は温度指定のない単純なリモートエンジンスタートのみ持つ
         if Feature.REMOTE_ENGINE_START in data[vehicle].features:
             entities.append(EngineStartButton(coordinator, data[vehicle]))
-            if data[vehicle].session.region == 'JP':
-                entities.append(EngineStopButton(coordinator, data[vehicle]))
+            entities.append(EngineStopButton(coordinator, data[vehicle]))
             # 20分始動はアプリでは features の remoteEngineStart.operationTimeSetting が
             # 真のときだけ選択肢に出る。features が取れていないときは従来どおり出す
             double_start = data[vehicle].double_start_available()

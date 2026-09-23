@@ -11,7 +11,6 @@ import requests
 import time
 from oauthlib.common import generate_nonce
 from oauthlib.oauth2 import TokenExpiredError
-from requests_oauthlib import OAuth2Session
 from urllib.parse import urlparse, parse_qs
 from .kamereon_const import *
 from .kamereon_jp_const import *
@@ -74,11 +73,10 @@ class Notification:
     def fetch_details(self, language: Language=None):
         if language is None:
             language = self.language
-        # JP の BFF は notifications v1 (アプリと同じ)、EU は v2
-        version = 'v1' if self.session.region == 'JP' else 'v2'
+        # JP の BFF は notifications v1 (アプリと同じ)
         resp = self._get(
-            '{}{}/notifications/users/{}/vehicles/{}/notifications/{}'.format(
-                self.session.settings['notifications_base_url'], version,
+            '{}v1/notifications/users/{}/vehicles/{}/notifications/{}'.format(
+                self.session.settings['notifications_base_url'],
                 self.user_id, self.vin, self.id
             ),
             params={'langCode': language.value}
@@ -104,9 +102,7 @@ class KamereonSession(JPSessionMixin):
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
     def login(self, username=None, password=None):
-        if self.region == 'JP':
-            return self._login_jp(username, password)
-        return self._login_oauth(username, password)
+        return self._login_jp(username, password)
 
     def _login_jp(self, username=None, password=None):
         """JP: BFF のログインAPIを試し、駄目なら KAuth に直接ログインする。"""
@@ -280,94 +276,6 @@ class KamereonSession(JPSessionMixin):
         codes = params.get('code')
         return codes[0] if codes else None
 
-    def _login_oauth(self, username=None, password=None):
-        if username is not None and password is not None:
-            # Cache credentials
-            self._username = username
-            self._password = password
-        else:
-            # Use cached credentials
-            username = self._username
-            password = self._password
-        
-        # Reset session
-        self.session = requests.session()
-
-        # grab an auth ID to use as part of the username/password login request,
-        # then move to the regular OAuth2 process
-        auth_url = '{}json/realms/root/realms/{}/authenticate'.format(
-            self.settings['auth_base_url'],
-            self.settings['realm'],
-        )
-        resp = self.session.post(
-            auth_url,
-            headers={
-                'Accept-Api-Version': API_VERSION,
-                'X-Username': 'anonymous',
-                'X-Password': 'anonymous',
-                'Accept': 'application/json',
-            })
-        next_body = resp.json()
-
-        # insert the username, and password
-        for c in next_body['callbacks']:
-            input_type = c['type']
-            if input_type == 'NameCallback':
-                c['input'][0]['value'] = username
-            elif input_type == 'PasswordCallback':
-                c['input'][0]['value'] = password
-
-        resp = self.session.post(
-            auth_url,
-            headers={
-                'Accept-Api-Version': API_VERSION,
-                'X-Username': 'anonymous',
-                'X-Password': 'anonymous',
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-            },
-            data=json.dumps(next_body))
-
-        oauth_data = resp.json()
-
-        if 'realm' not in oauth_data:
-            # 応答本文はトークン等を含みうるのでログに出さない。返ってきたキーだけ残す
-            _LOGGER.error("Invalid credentials provided (response keys: %s)",
-                          sorted(oauth_data) if isinstance(oauth_data, dict) else type(oauth_data).__name__)
-            raise RuntimeError("Invalid credentials")
-        
-        oauth_authorize_url = '{}oauth2{}/authorize'.format(
-            self.settings['auth_base_url'],
-            oauth_data['realm']
-            )
-        nonce = generate_nonce()
-        resp = self.session.get(
-            oauth_authorize_url,
-            params={
-                'client_id': self.settings['client_id'],
-                'redirect_uri': self.settings['redirect_uri'],
-                'response_type': 'code',
-                'scope': self.settings['scope'],
-                'nonce': nonce,
-            },
-            allow_redirects=False)
-        oauth_authorize_url = resp.headers['location']
-
-        oauth_token_url = '{}oauth2{}/access_token'.format(
-            self.settings['auth_base_url'],
-            oauth_data['realm']
-            )
-        self._oauth = OAuth2Session(
-            client_id=self.settings['client_id'],
-            redirect_uri=self.settings['redirect_uri'],
-            scope=self.settings['scope'])
-        self._oauth._client.nonce = nonce
-        self._oauth.fetch_token(
-            oauth_token_url,
-            authorization_response=oauth_authorize_url,
-            client_secret=self.settings['client_secret'],
-            include_client_id=True)
-
     @property
     def oauth(self):
         if self._oauth is None:
@@ -385,17 +293,7 @@ class KamereonSession(JPSessionMixin):
         return self._user_id
 
     def fetch_vehicles(self):
-        if self.region == 'JP':
-            return self._fetch_vehicles_jp()
-        resp = self.oauth.get(
-            '{}v5/users/{}/cars'.format(self.settings['user_base_url'], self.user_id)
-        )
-        vehicles = []
-        for vehicle_data in resp.json()['data']:
-            vehicle = Vehicle(vehicle_data, self.user_id)
-            vehicles.append(vehicle)
-            _registry[VEHICLES][vehicle.vin] = vehicle
-        return vehicles
+        return self._fetch_vehicles_jp()
 
 
 
@@ -574,9 +472,8 @@ class Vehicle(JPVehicleMixin):
         # (AVN / NGDC / MOCK / その名前)。GraphQL の ApplyProcedure はこのヘッダを
         # 付けないことが実測で分かっているため、呼び出し側が値 None を渡すと
         # setdefault が上書きしない → 下の None 除去で送信前に落ちる、という形で抑止する。
-        if self.session.region == 'JP':
-            headers = dict(headers or {})
-            headers.setdefault('X-Vehicle-Gateway', self.gateway_header())
+        headers = dict(headers or {})
+        headers.setdefault('X-Vehicle-Gateway', self.gateway_header())
         if headers:
             # 値が None のヘッダは「付けない」指示なので送信前に取り除く
             headers = {key: value for key, value in headers.items() if value is not None}
@@ -651,10 +548,7 @@ class Vehicle(JPVehicleMixin):
         if Feature.MY_CAR_FINDER not in self.features:
             return
         
-        if self.session.region == 'JP':
-            url = '{}nissan/vehicle-info/v1/cars/{}/location'.format(self.session.settings['user_base_url'], self.vin)
-        else:
-            url = '{}v1/cars/{}/location'.format(self.session.settings['car_adapter_base_url'], self.vin)
+        url = '{}nissan/vehicle-info/v1/cars/{}/location'.format(self.session.settings['user_base_url'], self.vin)
         resp = self._get(url, headers={'Content-Type': 'application/vnd.api+json'})
         body = resp.json()
         if 'errors' in body:
@@ -679,10 +573,7 @@ class Vehicle(JPVehicleMixin):
     def fetch_lock_status(self):
         if Feature.LOCK_STATUS_CHECK not in self.features:
             return
-        if self.session.region == 'JP':
-            url = '{}nissan/remote-action/v1/cars/{}/lock-status'.format(self.session.settings['user_base_url'], self.vin)
-        else:
-            url = '{}v1/cars/{}/lock-status'.format(self.session.settings['car_adapter_base_url'], self.vin)
+        url = '{}nissan/remote-action/v1/cars/{}/lock-status'.format(self.session.settings['user_base_url'], self.vin)
         resp = self._get(url, headers={'Content-Type': 'application/vnd.api+json'})
         body = resp.json()
         if 'errors' in body:
@@ -836,91 +727,42 @@ class Vehicle(JPVehicleMixin):
         attributes = {
             'action': action.value
         }
-        if self.session.region == 'JP':
-            if action == HVACAction.START:
-                # 通常の始動はアプリ 3.5.0 と同じ GraphQL ApplyProcedure(ENGINE_START) に
-                # 差し替える (docs/jp_api.md「遠隔操作」で確認済み)
-                return self.apply_procedure(
-                    PROCEDURE_ENGINE_START,
-                    user_argument=ENGINE_START_USER_ARGUMENT,
-                    wait=wait,
-                    double_start=(cycle_time == EngineCycleTime.DOUBLE),
-                )
-            # STOP はアプリに遠隔停止の操作が無く未確認のため、従来の hvac-control
-            # 経路のまま変更しない
-            return self.execute_remote_action(
-                'hvac_stop',
-                '{}nissan/remote-action/v1/cars/{}/hvac-control'.format(
-                    self.session.settings['user_base_url'], self.vin),
-                {'data': {'type': 'HvacControl', 'attributes': attributes}},
-                wait=wait,
-            )
-
         if action == HVACAction.START:
-            attributes['targetTemperature'] = target_temperature
-        if start is not None:
-            attributes['startDateTime'] = start.isoformat(timespec='seconds')
-        if srp is not None:
-            attributes['srp'] = srp
-        resp = self._post(
-            '{}v1/cars/{}/actions/hvac-start'.format(self.session.settings['car_adapter_base_url'], self.vin),
-            data=json.dumps({
-                'data': {
-                    'type': 'HvacStart',
-                    'attributes': attributes
-                }
-            }),
-            headers={'Content-Type': 'application/vnd.api+json'}
+            # 通常の始動はアプリ 3.5.0 と同じ GraphQL ApplyProcedure(ENGINE_START) に
+            # 差し替える (docs/jp_api.md「遠隔操作」で確認済み)
+            return self.apply_procedure(
+                PROCEDURE_ENGINE_START,
+                user_argument=ENGINE_START_USER_ARGUMENT,
+                wait=wait,
+                double_start=(cycle_time == EngineCycleTime.DOUBLE),
+            )
+        # STOP はアプリに遠隔停止の操作が無く未確認のため、従来の hvac-control
+        # 経路のまま変更しない
+        return self.execute_remote_action(
+            'hvac_stop',
+            '{}nissan/remote-action/v1/cars/{}/hvac-control'.format(
+                self.session.settings['user_base_url'], self.vin),
+            {'data': {'type': 'HvacControl', 'attributes': attributes}},
+            wait=wait,
         )
-        body = resp.json()
-        _LOGGER.debug("hvac-control response: status=%s body=%s", resp.status_code, body)
-        if 'errors' in body:
-            raise ValueError(body['errors'])
-        if wait:
-            self.poll_remote_action(self._action_id(body))
-        return body
 
-    def lock_unlock(self, srp: str=None, action: str='lock', group: LockableDoorGroup=None, wait: bool=True):
+    def lock_unlock(self, srp: str=None, action: str='lock', wait: bool=True):
         if Feature.APP_DOOR_LOCKING not in self.features:
             return
         assert action in ('lock', 'unlock')
-        if self.session.region == 'JP':
-            # JP のアプリには遠隔解錠のUI/APIが存在しない (盗難防止のための仕様と見られる)
-            if action == 'unlock':
-                raise NotImplementedError('NissanConnect JP does not expose a remote unlock action')
-            # アプリ 3.5.0 は施錠を front-api-market の GraphQL ApplyProcedure(LOCK) で送っている
-            # (docs/jp_api.md「遠隔操作」、mitmproxy 実測 2026-09-20)。
-            # v2/.../lock の remote-action 経路はもう使われていない
-            return self.apply_procedure(PROCEDURE_LOCK, wait=wait)
-        else:
-            if group is None:
-                group = LockableDoorGroup.DOORS_AND_HATCH
-            resp = self._post(
-                '{}v1/cars/{}/actions/lock-unlock'.format(self.session.settings['car_adapter_base_url'], self.vin),
-                data=json.dumps({
-                    'data': {
-                        'type': 'LockUnlock',
-                        'attributes': {
-                            'lock': action,
-                            'doorType': group.value,
-                            'srp': srp
-                        }
-                    }
-                }),
-                headers={'Content-Type': 'application/vnd.api+json'}
-            )
-        body = resp.json()
-        if 'errors' in body:
-            raise ValueError(body['errors'])
-        if wait:
-            self.poll_remote_action(self._action_id(body))
-        return body
+        # JP のアプリには遠隔解錠のUI/APIが存在しない (盗難防止のための仕様と見られる)
+        if action == 'unlock':
+            raise NotImplementedError('NissanConnect JP does not expose a remote unlock action')
+        # アプリ 3.5.0 は施錠を front-api-market の GraphQL ApplyProcedure(LOCK) で送っている
+        # (docs/jp_api.md「遠隔操作」、mitmproxy 実測 2026-09-20)。
+        # v2/.../lock の remote-action 経路はもう使われていない
+        return self.apply_procedure(PROCEDURE_LOCK, wait=wait)
 
-    def lock(self, srp: str=None, group: LockableDoorGroup=None):
-        return self.lock_unlock(srp, 'lock', group)
+    def lock(self, srp: str=None):
+        return self.lock_unlock(srp, 'lock')
 
-    def unlock(self, srp: str=None, group: LockableDoorGroup=None):
-        return self.lock_unlock(srp, 'unlock', group)
+    def unlock(self, srp: str=None):
+        return self.lock_unlock(srp, 'unlock')
 
     def fetch_hvac_status(self):
         # JP の ICE 車はエアコン系の feature を持たないが、遠隔エンジン始動が
@@ -929,11 +771,8 @@ class Vehicle(JPVehicleMixin):
                 and Feature.TEMPERATURE not in self.features
                 and Feature.REMOTE_ENGINE_START not in self.features):
             return
-        
-        if self.session.region == 'JP':
-            url = '{}nissan/remote-action/v1/cars/{}/hvac-status'.format(self.session.settings['user_base_url'], self.vin)
-        else:
-            url = '{}v1/cars/{}/hvac-status'.format(self.session.settings['car_adapter_base_url'], self.vin)
+
+        url = '{}nissan/remote-action/v1/cars/{}/hvac-status'.format(self.session.settings['user_base_url'], self.vin)
         resp = self._get(url, headers={'Content-Type': 'application/vnd.api+json'})
         body = resp.json()
         if 'errors' in body:
@@ -974,12 +813,8 @@ class Vehicle(JPVehicleMixin):
     def fetch_battery_status_leaf(self):
         """The battery-status endpoint isn't just for EV's. ICE Nissans publish the range under this!
            There is no obvious feature to qualify this, so we just suck it and see."""
-        if self.session.region == 'JP':
-            url = '{}nissan/vehicle-info/v2/cars/{}/battery-status'.format(
-                self.session.settings['user_base_url'], self.vin)
-        else:
-            url = '{}v1/cars/{}/battery-status'.format(
-                self.session.settings['car_adapter_base_url'], self.vin)
+        url = '{}nissan/vehicle-info/v2/cars/{}/battery-status'.format(
+            self.session.settings['user_base_url'], self.vin)
         resp = self._get(url, headers={'Content-Type': 'application/vnd.api+json'})
         body = resp.json()
         if 'errors' in body and Feature.BATTERY_STATUS in self.features:
@@ -1069,10 +904,8 @@ class Vehicle(JPVehicleMixin):
             raise ValueError(body['errors'])
 
     def _format_trip_date(self, value: datetime.date):
-        """JP の trip-history は YYYYMMDD、EU は YYYY-MM-DD を取る。"""
-        if self.session.region == 'JP':
-            return value.isoformat().replace('-', '')
-        return value.isoformat()
+        """JP の trip-history は YYYYMMDD を取る。"""
+        return value.isoformat().replace('-', '')
 
     def fetch_trip_histories(self, period: Period=None, start: datetime.date=None, end: datetime.date=None):
         if period is None:
@@ -1131,9 +964,8 @@ class Vehicle(JPVehicleMixin):
             if end.tzinfo is None:
                 # Assume UTC
                 params['end'] += 'Z'
-        version = 'v1' if self.session.region == 'JP' else 'v2'
         resp = self._get(
-            '{}{}/notifications/users/{}/vehicles/{}'.format(self.session.settings['notifications_base_url'], version, self.user_id, self.vin),
+            '{}v1/notifications/users/{}/vehicles/{}'.format(self.session.settings['notifications_base_url'], self.user_id, self.vin),
             params=params
         )
         body = resp.json()
@@ -1145,9 +977,8 @@ class Vehicle(JPVehicleMixin):
         """Take a list of notifications and set their status remotely
         to the one held locally (read / unread)."""
 
-        version = 'v1' if self.session.region == 'JP' else 'v2'
         resp = self._post(
-            '{}{}/notifications/users/{}/vehicles/{}'.format(self.session.settings['notifications_base_url'], version, self.user_id, self.vin),
+            '{}v1/notifications/users/{}/vehicles/{}'.format(self.session.settings['notifications_base_url'], self.user_id, self.vin),
             data=json.dumps([
                 {'notificationId': m.id, 'status': m.status.value}
                 for m in messages
@@ -1164,13 +995,9 @@ class Vehicle(JPVehicleMixin):
         params = {
             'langCode': language.value,
         }
-        if self.session.region == 'JP':
-            # JP のアプリは iot-notifier 系を使う
-            url = '{}alliance/iot-notifier/v1/settings/users/{}/vehicles/{}'.format(
-                self.session.settings['user_base_url'], self.user_id, self.vin)
-        else:
-            url = '{}v1/rules/settings/users/{}/vehicles/{}'.format(
-                self.session.settings['notifications_base_url'], self.user_id, self.vin)
+        # JP のアプリは iot-notifier 系を使う
+        url = '{}alliance/iot-notifier/v1/settings/users/{}/vehicles/{}'.format(
+            self.session.settings['user_base_url'], self.user_id, self.vin)
         resp = self._get(url, params=params)
         body = resp.json()
         if 'errors' in body:

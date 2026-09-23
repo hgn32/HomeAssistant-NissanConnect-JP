@@ -261,13 +261,5 @@
         "name": "Subscription end date"
       }
     }
-  },
-  "selector": {
-    "region": {
-      "options": {
-        "eu": "Europe",
-        "jp": "Japanese"
-      }
-    }
   }
 }
