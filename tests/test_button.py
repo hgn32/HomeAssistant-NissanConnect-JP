@@ -5,11 +5,6 @@ from custom_components.nissan_connect.const import DOMAIN, DATA_VEHICLES, DATA_C
 from custom_components.nissan_connect.kamereon.kamereon_const import Feature, HVACAction
 from custom_components.nissan_connect.kamereon.kamereon_jp_const import EngineCycleTime
 
-from custom_components.nissan_connect.kamereon.kamereon_jp_const import (
-    ENGINE_STOP_METHOD_DEFAULT,
-    ENGINE_STOP_METHOD_LEGACY,
-)
-
 from custom_components.nissan_connect.button import (
     async_setup_entry,
     ForceUpdateButton,
@@ -243,23 +238,10 @@ async def test_async_setup_entry_skips_engine_stop_for_eu(mock_config, mock_asyn
     assert not any(isinstance(e, EngineStopButton) for e in entities)
 
 
-def test_engine_stop_button_tries_graphql_first():
+def test_engine_stop_button_calls_stop_engine():
     coordinator = MagicMock()
     vehicle = MagicMock()
     button = EngineStopButton(coordinator, vehicle)
 
     button.press()
-    vehicle.stop_engine.assert_called_once_with(method=ENGINE_STOP_METHOD_DEFAULT)
-
-
-def test_engine_stop_button_falls_back_to_legacy_on_graphql_failure():
-    coordinator = MagicMock()
-    vehicle = MagicMock()
-    vehicle.stop_engine = MagicMock(side_effect=[ValueError('graphql failed'), {'method': 'legacy'}])
-    button = EngineStopButton(coordinator, vehicle)
-
-    button.press()
-    assert vehicle.stop_engine.call_args_list == [
-        ((), {'method': ENGINE_STOP_METHOD_DEFAULT}),
-        ((), {'method': ENGINE_STOP_METHOD_LEGACY}),
-    ]
+    vehicle.stop_engine.assert_called_once_with()

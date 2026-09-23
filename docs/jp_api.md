@@ -55,13 +55,17 @@
  "query":"mutation ApplyProcedure($input: ProcedureInput!) { apply(input: $input) { callbackKey __typename } __typename }"}
 ```
 
-- `procedure`: `ENGINE_START`（`userArgument` あり）/ `LOCK`（なし）/ `ENGINE_STOP`（**未確認**）
+- `procedure`: `ENGINE_START`（`userArgument` あり）/ `LOCK`（なし）/ `ENGINE_STOP`（なし。`LOCK` と同じ形）
 - `signature` はアプリ自身がこの綴りのダミー固定。`revision` も固定値。
 - `vehicleId` は **uuid**。carId ではない。
 - クエリは `callbackKey` だけ要求する最小形でサーバが受理する（実測）。
 - 応答の `data.apply.callbackKey` は base64。デコードすると
   `ENGINE_START:{"Tasks":[{"ID":"<actionId>",...}],"Revision":"123"}` で、
   **`Tasks[0].ID` が actionId**。
+- `ENGINE_STOP` は HA の停止ボタンで実車のエンジン停止を確認済み（2026-09-23）。ただし
+  **遠隔で始動したエンジンだけが遠隔停止できる**。キーで始動したエンジンは対象外。
+  停止直後は `remoteEngineStatus` が一時的に `3`（remoteStartNotAllowed）になり、
+  数分で `6`（readyForRemoteStart）に戻る。
 
 ### 結果ポーリング
 
@@ -70,14 +74,6 @@
 1 秒間隔。`data.attributes.status` が `CREATED → PENDING → COMPLETED / CANCELLED`。
 `actionId` は必須で、省略すると 0399 が返る。直後は 404 になることがあるので継続する。
 `clientId` は常に `test` になるが、アプリの成功操作でも同じ値で、失敗要因ではない。
-
-### エンジン停止（旧経路・フォールバック用）
-
-**POST `{BFF}alliance/car-adapter/v1/cars/{carId}/actions/engine-start`**
-body `{"data":{"type":"EngineStart","attributes":{"action":"stop"}}}`
-
-停止ボタンは GraphQL の `ENGINE_STOP` を先に試し、失敗したらこちらに落とす。
-`ENGINE_STOP` という procedure 名は**未確認**（アプリに停止 UI が無くキャプチャできていない）。
 
 ## 使っていないもの
 

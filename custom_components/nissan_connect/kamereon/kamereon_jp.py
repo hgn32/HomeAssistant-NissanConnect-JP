@@ -20,9 +20,6 @@ from .kamereon_jp_const import (
     APP_USER_AGENT,
     APP_VERSION,
     APPLY_PROCEDURE_QUERY,
-    ENGINE_STOP_LEGACY_ACTION,
-    ENGINE_STOP_LEGACY_TYPE,
-    ENGINE_STOP_METHOD_DEFAULT,
     FRONT_API_QUERY_PATH,
     GRAPHQL_HEADERS,
     PROBE_ENDPOINTS,
@@ -863,36 +860,23 @@ class JPVehicleMixin:
         log = getattr(self, 'remote_action_log', None) or []
         return log[-1] if log else None
 
-    def stop_engine(self, method: str = ENGINE_STOP_METHOD_DEFAULT, wait: bool = True) -> dict:
-        """JP: エンジン停止。`method` で 2 つの経路を選べる。
+    def stop_engine(self, wait: bool = True) -> dict:
+        """JP: エンジン停止。
 
-        - 'graphql': front-api-market の GraphQL ApplyProcedure(ENGINE_STOP)。
-          3.5.0 相当だが procedure 名は ENGINE_START からの類推で **未確認**
-          (アプリに停止 UI が無くキャプチャできていない。docs/jp_api.md「遠隔操作」)。
-        - 'legacy': car-adapter の POST v1/cars/{vin}/actions/engine-start に
-          `{"data": {"type": "EngineStart", "attributes": {"action": "stop"}}}` を送る経路。
-          docs/jp_api.md「エンジン停止（旧経路・フォールバック用）」で確認済み。
+        front-api-market の GraphQL ApplyProcedure(ENGINE_STOP) を送る
+        (docs/jp_api.md「遠隔操作」)。2026-09-23 に実車で確認済み: HA の停止ボタンで
+        実際にエンジンが止まった。なお、遠隔で始動したエンジンだけが遠隔停止の対象になり、
+        キーで始動したエンジンは対象外 (実車の観察)。
 
         例外は握りつぶさず呼び出し側に伝播させる。戻り値は
         `last_remote_action_trace()` の要約で、トークン・VIN・UUID・生ボディは含めない。
         """
-        if method not in (ENGINE_STOP_METHOD_DEFAULT, 'legacy'):
-            raise ValueError('Unknown engine stop method: {}'.format(method))
-
-        if method == 'graphql':
-            self.apply_procedure(PROCEDURE_ENGINE_STOP, wait=wait)
-        else:
-            url = '{}v1/cars/{}/actions/engine-start'.format(
-                self.session.settings['car_adapter_base_url'], self.vin)
-            body = {'data': {'type': ENGINE_STOP_LEGACY_TYPE,
-                             'attributes': {'action': ENGINE_STOP_LEGACY_ACTION}}}
-            self.execute_remote_action('engine_stop_legacy', url, body, wait=wait)
+        self.apply_procedure(PROCEDURE_ENGINE_STOP, wait=wait)
 
         trace = self.last_remote_action_trace()
         if trace is None:
-            return {'method': method, 'result': 'no-trace'}
+            return {'result': 'no-trace'}
         return {
-            'method': method,
             'action': trace['action'],
             'result': trace['result'],
             'error': trace['error'],

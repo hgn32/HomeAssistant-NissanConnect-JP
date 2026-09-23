@@ -11,8 +11,6 @@ from custom_components.nissan_connect.kamereon.kamereon_jp import decode_jwt_cla
 from custom_components.nissan_connect.kamereon.kamereon_jp_const import (
     APP_USER_AGENT,
     ENGINE_START_USER_ARGUMENT,
-    ENGINE_STOP_LEGACY_ACTION,
-    ENGINE_STOP_LEGACY_TYPE,
     GRAPHQL_USER_AGENT,
     PROCEDURE_ENGINE_START,
     PROCEDURE_ENGINE_STOP,
@@ -932,45 +930,16 @@ def test_fetch_probes_merges_user_initialize_into_token_info(monkeypatch):
 # stop_engine (engine_stop サービスの実体)
 # ------------------------------------------------------------------
 
-def test_stop_engine_graphql_calls_apply_procedure():
-    """method='graphql' は ApplyProcedure(ENGINE_STOP) を送る (procedure 名は未確認)。"""
+def test_stop_engine_calls_apply_procedure():
+    """stop_engine は ApplyProcedure(ENGINE_STOP) を送る (2026-09-23 実車確認済み)。"""
     vehicle = _make_vehicle([Feature.REMOTE_ENGINE_START])
     vehicle.apply_procedure = MagicMock()
-    vehicle.execute_remote_action = MagicMock()
     vehicle.last_remote_action_trace = MagicMock(return_value=None)
 
-    result = vehicle.stop_engine('graphql', wait=False)
+    result = vehicle.stop_engine(wait=False)
 
     vehicle.apply_procedure.assert_called_once_with(PROCEDURE_ENGINE_STOP, wait=False)
-    vehicle.execute_remote_action.assert_not_called()
-    assert result == {'method': 'graphql', 'result': 'no-trace'}
-
-
-def test_stop_engine_legacy_calls_car_adapter_engine_start_stop():
-    """method='legacy' は3.4.0解析で確定した car-adapter engine-start action=stop を送る。"""
-    vehicle = _make_vehicle([Feature.REMOTE_ENGINE_START])
-    vehicle.apply_procedure = MagicMock()
-    vehicle.execute_remote_action = MagicMock()
-    vehicle.last_remote_action_trace = MagicMock(return_value=None)
-
-    result = vehicle.stop_engine('legacy', wait=False)
-
-    vehicle.apply_procedure.assert_not_called()
-    vehicle.execute_remote_action.assert_called_once_with(
-        'engine_stop_legacy',
-        'https://bff/nc-app-bff/alliance/car-adapter/v1/cars/VIN0000000000000/actions/engine-start',
-        {'data': {'type': ENGINE_STOP_LEGACY_TYPE,
-                  'attributes': {'action': ENGINE_STOP_LEGACY_ACTION}}},
-        wait=False,
-    )
-    assert result == {'method': 'legacy', 'result': 'no-trace'}
-
-
-def test_stop_engine_rejects_unknown_method():
-    vehicle = _make_vehicle([Feature.REMOTE_ENGINE_START])
-
-    with pytest.raises(ValueError):
-        vehicle.stop_engine('bogus')
+    assert result == {'result': 'no-trace'}
 
 
 def test_stop_engine_summary_has_no_secrets():
@@ -1003,10 +972,9 @@ def test_stop_engine_summary_has_no_secrets():
     }
     vehicle.last_remote_action_trace = MagicMock(return_value=dummy_trace)
 
-    result = vehicle.stop_engine('graphql', wait=True)
+    result = vehicle.stop_engine(wait=True)
 
     assert result == {
-        'method': 'graphql',
         'action': 'ENGINE_STOP',
         'result': 'COMPLETED',
         'error': None,

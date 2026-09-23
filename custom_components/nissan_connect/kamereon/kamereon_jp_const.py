@@ -179,21 +179,9 @@ GRAPHQL_HEADERS = {
 PROCEDURE_ENGINE_START = 'ENGINE_START'
 PROCEDURE_LOCK = 'LOCK'
 
-# エンジン停止の procedure 名。未確認: ENGINE_START からの類推。アプリに停止 UI が無く
-# mitmproxy でキャプチャできていない (docs/jp_api.md「遠隔操作」)
-PROCEDURE_ENGINE_STOP = 'ENGINE_STOP'  # 未確認
-
-# エンジン停止 (legacy) の car-adapter エンドポイントに送るボディ。
-# 根拠: docs/jp_api.md「エンジン停止（旧経路・フォールバック用）」。
-# POST {car_adapter_base_url}v1/cars/{vin}/actions/engine-start
-# ボディ {"data": {"type": "EngineStart", "attributes": {"action": "stop"}}}
-ENGINE_STOP_LEGACY_TYPE = 'EngineStart'
-ENGINE_STOP_LEGACY_ACTION = 'stop'
-
-# stop_engine が受け付ける方式。graphql = 3.5.0 相当 (ENGINE_STOP、未確認)、
-# legacy = 3.4.0 解析で確定した car-adapter engine-start action=stop
-ENGINE_STOP_METHOD_LEGACY = 'legacy'
-ENGINE_STOP_METHOD_DEFAULT = 'graphql'
+# エンジン停止の procedure 名。2026-09-23 に実車で確認済み: HA の停止ボタンで
+# 実際にエンジンが止まった (docs/jp_api.md「遠隔操作」)
+PROCEDURE_ENGINE_STOP = 'ENGINE_STOP'
 
 # revision / signature はアプリ自身が固定で送る値。"dummy_signauture" は typo に見えるが
 # アプリのバイナリに同じ綴りで埋め込まれている値であり、こちらの誤記ではない

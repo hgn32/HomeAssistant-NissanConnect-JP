@@ -6,7 +6,6 @@ from homeassistant.components.button import ButtonEntity
 
 from .base import KamereonEntity
 from .kamereon import ChargingStatus, PluggedStatus, Feature, HVACAction, EngineCycleTime
-from .kamereon.kamereon_jp_const import ENGINE_STOP_METHOD_DEFAULT, ENGINE_STOP_METHOD_LEGACY
 from .const import DOMAIN, DATA_VEHICLES, DATA_COORDINATOR_POLL, DATA_COORDINATOR_FETCH, DATA_COORDINATOR_STATISTICS
 
 _LOGGER = logging.getLogger(__name__)
@@ -142,7 +141,7 @@ class EngineStartLongButton(KamereonEntity, ButtonEntity):
 
 
 class EngineStopButton(KamereonEntity, ButtonEntity):
-    """JP: 遠隔エンジン停止。graphql (未確認) を先に試し、失敗したら legacy に落とす。"""
+    """JP: 遠隔エンジン停止。"""
 
     _attr_translation_key = "engine_stop"
 
@@ -156,15 +155,7 @@ class EngineStopButton(KamereonEntity, ButtonEntity):
     def press(self):
         """エンジンを停止する。
 
-        3.5.0 相当の GraphQL ApplyProcedure(ENGINE_STOP) を先に試す。procedure 名は
-        未確認 (docs/jp_api.md「遠隔操作」) なので、失敗したら
-        legacy 経路 (car-adapter engine-start action=stop、
-        docs/jp_api.md「エンジン停止（旧経路・フォールバック用）」) に落とす。
+        GraphQL ApplyProcedure(ENGINE_STOP) を送る (docs/jp_api.md「遠隔操作」、
+        2026-09-23 に実車で確認済み)。
         """
-        try:
-            self.vehicle.stop_engine(method=ENGINE_STOP_METHOD_DEFAULT)
-        except Exception as err:  # noqa: BLE001
-            # graphql の procedure 名が未確認のため、失敗は想定内。legacy で再試行する
-            _LOGGER.warning("engine stop via %s failed (%s); retrying with legacy",
-                            ENGINE_STOP_METHOD_DEFAULT, err)
-            self.vehicle.stop_engine(method=ENGINE_STOP_METHOD_LEGACY)
+        self.vehicle.stop_engine()
